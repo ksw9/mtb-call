@@ -1,0 +1,673 @@
+---
+title: "Environmental Mtb"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/labs/jandr/walter/tb/mtb/')
+knitr::opts_chunk$set(echo = TRUE)
+setwd('/labs/jandr/walter/tb/mtb/')
+rm(list = ls())
+library(tidyverse)
+library(fs)
+library(ggsci)
+library(ape)
+library(harrietr)
+library(ggtree)
+library(RColorBrewer)
+library(infer)
+library(ggnewscale)
+#save.image('/labs/jandr/walter/tb/mtb/workflow/scripts/environmental.RData')
+#load('/labs/jandr/walter/tb/mtb/workflow/scripts/environmental.RData')
+
+plot_dir = '/labs/jandr/walter/tb/mtb/process/plots/'
+#source(file = '/labs/jandr/walter/lambda/scripts/isnv_functions.R')
+```
+
+```{r environmental samples cov}
+# List of mosdepth depth files
+working_dir = "/labs/jandr/walter/tb/mtb/"
+dirs <- paste(dir(path = '/labs/jandr/walter/tb/mtb/results/', full.names = TRUE), '/stats/', sep = '')
+env_cov_files <- dir(path = dirs, glob2rx('*.regions.bed.gz'), full.names = TRUE)
+env_cov_files <- env_cov_files[str_detect(env_cov_files, pattern = '4514|10561|8328')]
+names(env_cov_files) <- str_remove(basename(env_cov_files), "_S.+")
+
+# Read in depth files.
+env_cov <- purrr::map_dfr(env_cov_files, 
+  ~as.data.frame(read.table(.x,header = FALSE, sep="\t",stringsAsFactors=FALSE, quote="")), .id = 'file')
+names(env_cov) <- c('file','chrom','start','end','dp')
+env_cov2 <- env_cov %>%
+  rowwise() %>%
+  mutate(loc = mean(start,end)) %>%
+  mutate(file = case_when(file ==  "8328-Food" ~ "4514-Food2", TRUE ~ file)) %>%
+  mutate(cell = str_remove(file,'-.+'), 
+         sample_type = sub(".*-", "",file), 
+         sample_type = case_when(sample_type == '384' ~ 'Lighter',
+                                 sample_type == 'culture' ~'Culture',
+                                 file == "4514-Food2" ~ 'Utensils2',
+                                 sample_type == 'food' ~ 'Utensils',
+                                 TRUE ~ sample_type))
+unique(env_cov2$cell)
+
+# Rename samples. 
+env_cov3 <- env_cov2 %>%
+  mutate(cell = case_when(cell == 10561 ~ 'MT_01',
+                          cell == 4514 ~ 'MT_02',
+                          cell == 8328 ~ 'MT_03',
+                          TRUE ~ as.character(NA)), 
+         sample_type = case_when(sample_type == 'BC' ~'Bed',
+                                 str_starts(sample_type, 'Food') ~ 'Utensils',
+                                 sample_type == 'Room' ~'Surfaces',
+                                 TRUE ~ sample_type))
+env_cov3$sample_type <- factor(env_cov3$sample_type, labels = c('Culture','Bed','Lighter','Surfaces','Utensils','Utensils2'), levels =c('Culture','Bed','Lighter','Surfaces','Utensils','Utensils2'))
+
+# Plot label
+env_cov3 <- env_cov3 %>%
+  mutate(plot_label = paste(cell, sample_type))
+
+# Plot env coverage. 
+require(scales)
+p0 <- ggplot(env_cov3, aes(x = end/1e6, y = dp, color = cell)) + 
+  geom_line() + facet_wrap(vars(plot_label), ncol =4) +# vars(sample_type)) +  # facet_wrap(vars(sample))
+  theme_classic() + 
+  scale_color_viridis_d(name = 'Cell') +
+  ylab('Coverage depth') + xlab('Position (Mbp)') + 
+  #scale_y_log10(labels = number_format(accuracy = 1)) +
+  theme(legend.position = 'none') +
+  scale_y_continuous(trans = log_trans(), breaks = base_breaks(),
+                   labels = prettyNum)
+
+  
+p0
+#ggsave(p0, filename = paste(plot_dir, 'env_cov.pdf',sep = ''), height = 6, width = 8)
+
+# Cov for positive control
+control_cov_files <- dir(path = '/labs/jandr/walter/tb/mtb/results//H37RV_S1/stats/', glob2rx('*.regions.bed.gz'), full.names = TRUE)
+names(control_cov_files) <- str_remove(basename(control_cov_files), "_S.+")
+control_cov <- purrr::map_dfr(control_cov_files, 
+  ~as.data.frame(read.table(.x,header = FALSE, sep="\t",stringsAsFactors=FALSE, quote="")), .id = 'file')
+names(control_cov) <- c('file','chrom','start','end','dp')
+
+# Plot control cov
+ggplot(control_cov, aes(x = end/1e6, y = dp)) + 
+  geom_line() + #facet_grid(vars(cell), vars(sample_type)) +  # facet_wrap(vars(sample))
+  theme_classic() + 
+  scale_color_viridis_d(name = 'Cell') +
+  ylab('Coverage depth') + xlab('Position (Mbp)') + 
+  scale_y_log10(labels = number_format(accuracy = 1)) +
+  theme(legend.position = 'none') 
+
+```
+
+```{r enviro stats}
+# Get summary stats
+combined_df %>%
+  filter(str_detect(sample, pattern = '4514|10561|8328') & !str_detect(sample, pattern = 'culture')) %>%
+  mutate_at(vars(MEAN_COVERAGE), as.numeric) %>%
+  summarize(mean(MEAN_COVERAGE),
+            mean(SD_COVERAGE),
+            mean(MEDIAN_COVERAGE),
+            mean(PCT_100X),
+            mean(PCT_10X))
+
+# Get median and range of mean coverage
+combined_df %>%
+  filter(str_detect(sample, pattern = '4514|10561|8328') & !str_detect(sample, pattern = 'culture')) %>%
+  ungroup() %>%
+  mutate_at(vars(MEAN_COVERAGE), as.numeric) %>%
+  summarize(median(MEAN_COVERAGE),
+            min(MEAN_COVERAGE), max(MEAN_COVERAGE))
+
+# Compare lineage + amr status in cultured versus captured samples
+combined_df %>%
+  filter(str_detect(sample, pattern = '4514|10561|8328') | str_detect(sample, 'H37')) %>%
+  select(sample,main_lineage,sub_lineage, MEDIAN_COVERAGE, MEAN_COVERAGE, SD_COVERAGE) %>%
+  write_csv(file = paste(plot_dir, 'enviro_summary_stats.csv', sep = ''))
+
+# AMR status from Mykrobe
+combined_df %>%
+  filter(str_detect(sample, pattern = '4514|10561|8328'))
+
+# Look at amr status from Mykrobe 
+amr %>%
+  filter(str_detect(sample, pattern = '4514|10561|8328') & susceptibility == 'R') #%>%
+  #filter(str_detect(sample, pattern = '10561'))
+
+# Add cell to combined_df
+plot_df <- combined_df %>%
+  mutate(seq_type = case_when(str_detect(sample, pattern = '4514|10561|8328') & !str_detect(sample, pattern = 'culture') ~ 'Capture',
+         str_detect(sample, pattern = '4514|10561|8328') & str_detect(sample, pattern = 'culture') ~ 'Culture')) %>%
+# Update sample name
+  mutate(sample = case_when(sample ==  "8328-Food" ~ "4514-Food2", 
+                            TRUE ~ sample)) %>%
+  separate(sample, sep = '-', into = c('cell','sample_type'), extra = 'merge', remove = FALSE) %>%
+  mutate(cell = case_when(cell == 10561 ~ 'MT_01',
+                          cell == 4514 ~ 'MT_02',
+                          cell == 8328 ~ 'MT_03',
+                          TRUE ~ as.character(NA)),
+         sample_type = case_when(is.na(seq_type) ~ as.character(NA), 
+                                 sample_type %in% c('food','Food','Food2') ~ 'Utensils',
+                                 str_detect(sample_type, 'culture') ~'Culture',
+                                 str_detect(sample_type, 'BC') ~ 'Bed',
+                                 str_detect(sample_type, 'lighter') ~ 'Lighter',
+                                 str_detect(sample_type, 'Room') ~ 'Surfaces',
+                                  TRUE ~ sample_type))
+  
+table(plot_df$cell, useNA = 'always')
+table(plot_df$sample_type, useNA = 'always')
+```
+```{r kraken}
+#kr_files <- '/labs/jandr/walter/tb/mtb/results/10561-Food_S7/MT01_MtB_Baits-2021-10-06rerun2/kraken/10561-Food_S7_kraken.report'
+kr_files <- Sys.glob('/labs/jandr/walter/tb/mtb/results/*/*/kraken/*kraken.report')
+names(kr_files) <- str_remove(basename(kr_files), '_S.+')
+
+# Need to update this for all files. 
+kr <- read_delim(kr_files, delim = '\t', col_names = c('per_reads','num_reads_clade','num_reads_taxa','rank','ncbi_id','sci_name'))
+kr <- purrr::map_dfr(kr_files, 
+          ~ read_delim(.x, delim = '\t', col_names = c('per_reads','num_reads_clade','num_reads_taxa','rank','ncbi_id','sci_name'), 
+                       col_types = 'nnncnc'), .id = 'sample')
+kr
+
+# sum of num_reads_taxa = total reads. very close to total. 414 unaccounted for reads.
+kr_summary <- kr %>%
+  filter(str_detect(sample, '4514|10561|8328')) %>%
+    mutate(sample= case_when(sample==  "8328-Food" ~ "4514-Food2", TRUE ~ sample)) %>%
+  mutate(per_reads=as.numeric(per_reads), 
+         sci_name = str_trim(sci_name)) %>%
+  dplyr::ungroup()%>% group_by(sample) %>%
+  summarise(total_reads = sum(num_reads_taxa),
+            num_mycobacterium_genus = sum(num_reads_clade[which(rank == 'G' & sci_name == 'Mycobacterium')]),
+            num_other_genus = sum(num_reads_clade[which(rank == 'G' & !sci_name=='Mycobacterium')]),
+            # num_no_genus = sum(num_reads_taxa[!which(str_starts(rank, 'G|U'))]),# none
+            num_unclassified = sum(num_reads_clade[which(rank == 'U')]), 
+            num_mtb = sum(num_reads_clade[which(rank == 'G1' & sci_name == 'Mycobacterium tuberculosis complex')]),
+            num_ntm = sum(num_reads_clade[which(rank == 'S' & str_detect(sci_name, 'Mycobacterium') & !str_detect(sci_name, 'tuberculosis|leprae'))]),
+            num_mycobacterium_other = num_mycobacterium_genus-num_mtb-num_ntm, 
+prop_mycobacterium_genus = num_mycobacterium_genus/total_reads,
+prop_other_genus = num_other_genus/total_reads,
+prop_unclassified = num_unclassified/total_reads,
+prop_mtb = num_mtb/total_reads,
+prop_ntm = num_ntm/total_reads,
+prop_mycobacterium_other = num_mycobacterium_other/total_reads, 
+prop_test_other = 1 - prop_mycobacterium_genus -prop_unclassified)
+
+# Rename samples
+kr_summary <- kr_summary %>%
+  mutate(cell = str_remove(sample,'-.+'), 
+         sample_type = sub(".*-", "",sample), 
+         sample_type = case_when(sample_type == '384' ~ 'Lighter',
+                                 sample_type == 'culture' ~'Culture',
+                                 sample == "4514-Food2" ~ 'Utensils2',
+                                 sample_type == 'food' ~ 'Utensils',
+                                 sample_type == 'Room' ~'Surfaces',
+                                 sample_type == 'BC' ~'Bed',
+                                 TRUE ~ sample_type), 
+         cell = case_when(cell == 10561 ~ 'MT_01',
+                          cell == 4514 ~ 'MT_02',
+                          cell == 8328 ~ 'MT_03',
+                          TRUE ~ as.character(NA)), 
+         plot_label = paste(cell, sample_type, sep = ' '))
+
+unique(kr_summary$plot_label)
+kr_summary
+
+# Plot by sample        
+p <- kr_summary %>%
+  mutate(env = case_when(str_detect(sample, '4514|10561|8328') & !str_detect(sample, 'culture') ~ 'Capture',
+                         TRUE ~ 'Culture')) %>%
+  pivot_longer(cols = c(prop_other_genus,prop_mtb,prop_ntm,prop_mycobacterium_other,prop_unclassified, prop_other_genus), names_to = 'Taxa', values_to = 'Proportion') %>%
+  mutate(Taxa = factor(Taxa, levels = c('prop_mtb','prop_mycobacterium_other','prop_ntm','prop_unclassified', 'prop_other_genus'), 
+                       labels = c('Mycobacterium tuberculosis','Mycobacterium genus', 'Nontuberculosis mycobacterium','Unclassified','Other'))) %>%
+  ggplot(aes(x = plot_label, y = Proportion, fill = Taxa)) + 
+  geom_bar(position = 'stack', stat = 'identity') + theme_classic() + 
+  xlab('Sample') + ylab('% Reads assigned') + 
+  scale_fill_viridis_d() + 
+  facet_grid(~env, drop = TRUE, scales = 'free', space = 'free_x') + 
+  theme(axis.text.x = element_text(angle = 45,vjust = 0.6))
+p
+
+# Save plot
+ggsave(p, filename = paste(plot_dir, 'taxa_assignments.pdf',sep = ''), height = 6, width = 8)
+
+# Proportions test for each sample independently
+kr_summary <- kr_summary %>% relocate(cell, sample_type) %>%
+   mutate(env = case_when(str_detect(sample, '4514|10561|8328') & !str_detect(sample, 'culture') ~ 'Capture',
+                         TRUE ~ 'Culture'))
+  
+# Beta regression for prop ntm
+m1 <- betareg(prop_ntm ~ env + cell, data = kr_summary)
+summary(m1)
+
+# Beta regression for prop other
+m2 <- betareg(prop_other_genus~ env + cell, data = kr_summary)
+summary(m2)
+
+# Efficiency: proportion Mycobacterium genus and not NTM:
+kr_summary %>%
+  summarize(efficiency =prop_mycobacterium_genus - prop_ntm) %>%
+  summarize(median(efficiency),
+            range(efficiency))
+
+```
+
+```{r pairwise differences - excluding het sites.}
+fasta_file = '/labs/jandr/walter/tb/mtb/enviro/enviro_fixed_msa_snps.fa'
+  
+# Read in fasta, get pairwise distances
+f <- read.dna(file = fasta_file, format = 'fasta')
+labels(f)
+d1 <- dist.dna(f, model = 'N', as.matrix = TRUE, pairwise.deletion = FALSE)  
+
+# Convert to df.
+d <- d1 %>% as.data.frame() %>%
+  rownames_to_column('iso1') %>% as_tibble() %>%  
+  pivot_longer(cols = 2:13, names_to = 'iso2', values_to = 'dist') %>%
+  # Re-label incorrect label
+  mutate(iso1 = case_when(iso1 == "8328-Food_S10_bwa_H37Rv_gatk_qfilt_nohets.vcf.gz1"~ "4514-Food_S2", TRUE~str_remove(iso1,"_bwa_H37Rv_gatk_qfilt_nohets.vcf.gz1")), 
+         iso2 = case_when(iso2 == "8328-Food_S10_bwa_H37Rv_gatk_qfilt_nohets.vcf.gz1"~ "4514-Food_S2", TRUE~str_remove(iso2,"_bwa_H37Rv_gatk_qfilt_nohets.vcf.gz1"))) %>%
+  filter(!iso1==iso2) %>%
+  mutate(iso1 = str_remove(iso1, '_S.+'),
+         iso2 = str_remove(iso2, '_S.+'),
+         name1 = str_remove(iso1, '_S.+'),
+         name2 = str_remove(iso2, '_S.+')) %>% 
+  relocate(name1, name2,dist,) %>%
+  separate(name1, sep = '-', into = c('cell1','sample_type1'), extra = 'merge', remove = FALSE) %>%
+  separate(name2, sep = '-', into = c('cell2','sample_type2'), extra = 'merge', remove = FALSE) %>%
+  mutate(pair_id = case_when(name1 == 'NC_000962.3' | name2 == 'NC_000962.3' ~ 'Reference',
+                             name1 == name2 ~ 'Sample',
+                               cell1 == cell2 ~ 'Cell',
+                               TRUE ~ 'Outside cell'))
+
+d <- d %>% mutate(type = 'fixed')
+
+# Plot histogram of pairwise distances
+g1 <- d %>%
+  ggplot(aes(x = dist, fill = pair_id)) +
+  geom_histogram() + theme_classic() + scale_fill_viridis_d(name = '') + 
+  xlab('Pairwise SNP distance')
+g1
+ggsave(g1, filename = paste(plot_dir, 'pairwise_dists.pdf',sep = ''), height = 2, width =4)
+
+# PLot histogram of within-cell comparisons
+g2 <- d %>%
+  filter(pair_id == 'Cell') %>%
+  ggplot(aes(x = dist, fill = cell1)) +facet_wrap(~cell1) +
+  geom_histogram() + theme_classic() + scale_fill_viridis_d(name = '', option = 'plasma') + 
+  xlab('Pairwise SNP distance')
+g2
+#ggsave(g2, filename = paste(plot_dir, 'pairwise_dists_within_cell.pdf',sep = ''), height = 2, width = 4)
+
+# Look at distances to H37Rv
+d %>% 
+  filter(name1 == "NC_000962.3" & name2 != "H37RV") %>%
+  relocate(dist) %>% arrange(dist) %>%
+  summarize(mean(dist),
+            sd(dist))
+```
+
+```{r pairwise differences - including het sites.}
+fasta_file2 = '/labs/jandr/walter/tb/mtb/enviro/enviro_msa_snps.fa'
+  
+# Read in fasta, get pairwise distances
+f2 <- read.dna(file = fasta_file2, format = 'fasta')
+new_labels <- c(str_sub(labels(f2), start = 1, end = -2)[1:11], "NC_000962.3")
+dimnames(f2)[[1]] <- new_labels
+d2 <- dist.dna(f2, model = 'N', as.matrix = TRUE, pairwise.deletion = FALSE)  
+
+d2
+d2 <- d2 %>% as.data.frame() %>%
+  rownames_to_column('iso1') %>% as_tibble() %>%  
+  pivot_longer(cols = 2:13, names_to = 'iso2', values_to = 'dist') %>%
+    # Re-label incorrect label
+  mutate(iso1 = case_when(iso1 == "8328-Food_S10"~ "4514-Food_S2", TRUE~iso1), 
+         iso2 = case_when(iso2 == "8328-Food_S10"~ "4514-Food_S2", TRUE~iso2)) %>%
+  filter(!iso1==iso2) %>%
+  mutate(iso1 = str_remove(iso1, '_S.+'),
+      iso2 = str_remove(iso2, '_S.+'),
+    name1 = str_remove(iso1, '_S.+'),
+         name2 = str_remove(iso2, '_S.+')) %>%
+  separate(name1, sep = '-', into = c('cell1','sample_type1'), extra = 'merge', remove = FALSE) %>%
+  separate(name2, sep = '-', into = c('cell2','sample_type2'), extra = 'merge', remove = FALSE) %>%
+  mutate(pair_id = case_when(name1 == 'NC_000962.3' | name2 == 'NC_000962.3' ~ 'Reference',
+                             name1 == name2 ~ 'Sample',
+                               cell1 == cell2 ~ 'Cell',
+                               TRUE ~ 'Outside cell'))
+d2 <- d2 %>% mutate(type = 'all')
+
+# Combine both pairwise dist matrices
+d_all <- d %>% 
+  left_join(d2[,c('iso1','iso2','dist','type')], by = c('iso1','iso2')) %>%
+  relocate(iso1,iso2, dist.x,dist.y)
+plot(d_all$dist.x,d_all$dist.y)
+
+# Look at distances to H37Rv
+d_all %>% 
+  filter(name1 == "NC_000962.3" & name2 != "H37RV") %>%
+  relocate(dist.x,dist.y) %>% arrange(dist.x) %>%
+  summarize(mean(dist.x),
+            sd(dist.x),
+            mean(dist.y),
+            sd(dist.y))
+
+# Look at pairwise distances by sample
+d_all %>%
+  filter(cell1== '10561' & cell2 == '10561') 
+d_all %>%
+  filter(cell1== '4514' & cell2 == '4514') 
+d_all %>%
+  filter(cell1== '8328' & cell2 == '8328') 
+
+# Plot pairwise distances, facet by filter
+# Plot histogram of pairwise distances
+g3 <- bind_rows(d,d2) %>%
+  mutate(type = str_to_title(type)) %>%
+  ggplot(aes(x = dist, fill = pair_id)) +
+  geom_histogram() + theme_classic() + scale_fill_viridis_d(name = '') + 
+  xlab('Pairwise SNP distance') + 
+  facet_wrap(~type)
+g3
+#ggsave(g3, filename = paste(plot_dir, 'pairwise_dists_fixedvsall.pdf',sep = ''), height = 6, width = 8)
+
+# PLot histogram of within-cell comparisons
+g4 <- bind_rows(d,d2) %>%
+  mutate(type = str_to_title(type)) %>%
+  filter(pair_id == 'Cell') %>%
+  ggplot(aes(x = dist, fill = cell1)) +facet_grid(~cell1 ~type) +
+  geom_histogram() + theme_classic() + scale_fill_viridis_d(name = '', option = 'plasma') + 
+  xlab('Pairwise SNP distance')
+g4
+#ggsave(g4, filename = paste(plot_dir, 'pairwise_dists_within_cell_fixedvsall.pdf',sep = ''), height = 6, width = 8)
+
+# Combine plots
+library(cowplot)
+g5 <- plot_grid(g3,g4,ncol = 1,labels = 'AUTO')
+g5
+ggsave(g5, filename = paste(plot_dir,'combined_pairwise_dists.pdf',sep = ''), height = 8, width = 6)
+```
+```{r raxml tree}
+#tree_file = '/labs/jandr/walter/tb/mtb/enviro/trees/stanford_is-1000_workers_.raxml.bestTreeCollapsed'
+tree_file = '/labs/jandr/walter/tb/mtb/enviro/trees/stanford_is-1000_workers_.raxml.bestTree'
+
+# Plot raxml tree. Color by sublineage. Highlight 
+t <- read.tree(tree_file)  
+t$tip.label <- str_sub(t$tip.label,1,nchar(t$tip.label)-1) # a "1" is added to the tip names
+t$tip.label <- str_remove(t$tip.label, '_S.+')
+
+# Identify tips on long branches to drop. 
+plot(as.phylo(t), tips = TRUE, type = 'fan', show.tip.label = FALSE)
+identify(as.phylo(t), tips = TRUE )
+
+# Drop tips not assigned to a lineage
+t <- drop.tip(t, c("TB-T3.DNA.MTB-031735", "8020-sputum","SHTBRm1","SHTBRm2","TBIRm1","TBIRm2","5668", 
+                   'TB-T3.DNA.MTB-026964','TB-T3.DNA.MTB-013346','TB-T3.DNA.MTB-021743'))
+
+low_cov <- df_per_run %>% filter(MEAN_COVERAGE < 30 | non_mtb_sp_per> 30) %>% pull(sample)
+low_cov <- t$tip.label[which(t$tip.label %in% low_cov)]
+t <- drop.tip(t, low_cov)
+
+# Root on lineage 4.9
+t2 <- root(t, outgroup = "NC_000962." )
+ggtree(t2, layout = 'fan')
+plot(as.phylo(t2), tips = TRUE, type = 'fan', show.tip.label = FALSE)
+identify(t2, tips = TRUE, labels = TRUE)
+df_per_run %>% filter(sample == "TB-T3.DNA.MTB-031768")
+t2 <- drop.tip(t2, c("TB-T3.DNA.MTB-031594","TB-T3.DNA.MTB-013554",  "TB-T3.DNA.MTB-021739", "TB-T3.DNA.MTB-026980",'TB-T3.DNA.MTB-031724',"TB-T3.DNA.MTB-021795","TB-T3.DNA.MTB-031768"))
+
+# color branches by lineage.
+lin41 <- lin %>% filter(sub_lineage_short == 4.1) %>% mutate(sample = str_remove(sample, '_S.+')) %>% pull(sample)
+lin42 <- lin %>% filter(sub_lineage_short == 4.2) %>% mutate(sample = str_remove(sample, '_S.+')) %>% pull(sample)
+lin43 <- lin %>% filter(sub_lineage_short == 4.3) %>% mutate(sample = str_remove(sample, '_S.+')) %>% pull(sample)
+lin44 <- lin %>% filter(sub_lineage_short == 4.4) %>% mutate(sample = str_remove(sample, '_S.+')) %>% pull(sample)
+lin47 <- lin %>% filter(sub_lineage_short == 4.7) %>% mutate(sample = str_remove(sample, '_S.+')) %>% pull(sample)
+lin48 <- lin %>% filter(sub_lineage_short == 4.8) %>% mutate(sample = str_remove(sample, '_S.+')) %>% pull(sample)
+lin49 <- lin %>% filter(sub_lineage_short == 4.9) %>% mutate(sample = str_remove(sample, '_S.+')) %>% pull(sample)
+lin <- lin %>% mutate(sample = str_remove(sample, '_S.+')) 
+lin %>% filter(sample %in% t$tip.label) %>% filter(is.na(sub_lineage_short))
+ lin %>% filter(sub_lineage_short == 4)
+
+ # Add OTU group to data. 
+t3 = groupOTU(t2,list('4.1' = lin41,'4.2' = lin42, '4.3' = lin43, '4.4' = lin44, '4.7' = lin47, '4.8' = lin48, '4.9' = c(lin49,"NC_000962.")), group_name = 'Lineage', "origin")
+
+lineage_pal <- rev(brewer.pal(n = 7, name = "Dark2"))
+#show_col(lineage_pal)
+names(lineage_pal) <- levels(attr(t3, 'Lineage'))
+
+# Plot tree coloring by lineage. (unadorned by heatmaps)
+p0 <- ggtree(t3, layout="fan", open.angle=10, size=0.5, aes(color = Lineage)) +
+  # don't show the '0' lineage in the key.-
+  scale_color_manual(values = lineage_pal, breaks =  levels(attr(t3, 'Lineage'))[-1]) 
+p0
+
+
+# Add remaining rows to plot_df.
+add_rows <- t$tip.label[!t$tip.label %in% plot_df$sample]
+plot_df <- plot_df %>%
+  bind_rows(list(sample = add_rows))
+
+# Add information to tree
+row.names(plot_df) <- plot_df$sample
+
+p1 <- p0 + new_scale_color() 
+
+# Add heatmap
+gheatmap(p1, plot_df[,c('cell','sample_type')],
+         offset=.00001, width=.2,
+         colnames_angle=95, colnames_offset_y = .25) +
+    scale_fill_viridis_d(option="D", name="discrete\nvalue")
+
+# Try cell labels again
+p1 <- p1 %<+% plot_df
+p2 <- p1 + 
+  geom_treescale(x = .012, y = .012, width = .001, linesize = 1)  +
+  geom_tippoint(aes(shape = sample_type, color = cell), size = 1.5, na.rm = TRUE) + 
+  geom_tiplab2(aes(label = cell, align = TRUE, na.rm = TRUE)) + 
+  scale_shape(name = 'Sample type',na.translate = FALSE) + 
+  scale_color_viridis_d(name = 'Cell',na.translate=FALSE)
+p2
+ggsave(p2, filename = paste(plot_dir, 'enviro_phylogeny_021122.pdf',sep = ''), width = 6, height = 6)
+
+```
+```{r environmental vcfs}
+library(vcfR)
+working_dir = '/labs/jandr/walter/tb/mtb/enviro/per_samp/'
+
+# List VCF files to read in. 
+var_files <- dir(path = working_dir, glob2rx('*_isnv.vcf.gz|*fixed.vcf.gz'), full.names = TRUE)
+var_files <- var_files[str_detect(var_files, '4514|8328|1056')]
+var_files
+
+# Function to read in VCF, convert to tibble and bind columns for the gt and fix slots.
+vcf_to_tbl <- function(input_vcf){
+  tmp = vcfR2tidy(read.vcfR(input_vcf))
+  tmp_tbl = cbind(tmp$fix,tmp$gt)
+  return(tmp_tbl)
+}
+
+# Read in all vcf files.
+var_df <- purrr::map_dfr(var_files, 
+  ~vcf_to_tbl(.x)) %>%
+  mutate(Sample = str_remove(Indiv, '_trim_kr_1')) %>%
+  separate(gt_AD, sep =',', into = c('AD1','AD2')) %>%
+  select(!starts_with('ChromKey') & !POS...28) %>% rename(POS = POS...3)
+
+# Add maf
+var_df <- var_df %>%
+  mutate_at(c('AD1','AD2'), as.integer) %>%
+  rowwise() %>%
+  mutate(maf = min(AD1,AD2)/DP)
+
+# Number of iSNVs per sample. H37Rv has 0 biallelic sites.
+var_df %>%
+  group_by(Sample) %>%
+  summarize(n = length(which(AD1 >=5 & AD2 >=5)))
+
+# Look at H37Rv - should be only a single difference from the ref.
+var_df %>%
+  filter(Sample == "H37RV_S1" )
+
+# Look at iSNVs in 4514 - none are called as different genotypes, but it is possible they are fixed. need a VCF file that includes iSNVs and also fixed diffs between all environemntal samples
+var_df %>%
+  group_by(POS, Sample) %>% arrange(ANN) %>% slice(1) %>% ungroup() %>% group_by(POS) %>%
+  arrange(-maf) %>%
+  filter(str_starts(Sample, '4514')) %>% # & str_detect(Sample, c('culture|BC'))) %>%
+  mutate(n = length(unique(Sample)), 
+         n_gt = length(unique(gt_GT)[!is.na(unique(gt_GT))]), 
+         max_maf = max(maf, na.rm= TRUE)) %>% #filter(n > 1) %>% 
+  filter(n_gt >1) %>%
+  arrange(POS) %>% relocate(POS,maf, gt_GT, AD1,AD2, Sample) %>%
+  filter(max_maf> .05 ) %>%
+  ungroup() %>% summarize(length(unique(POS)))
+# 540 sites with 2 genotypes called in 8328 between all
+# 218 sites with 2 genotypes called between 8328 BC and Food; none have a MAF > 5% (they are fixed diffs)
+
+
+# 
+var_df %>%
+  filter(Sample == '4514-lighter-384_S5') %>%
+  relocate(POS,maf, gt_GT, AD1,AD2, Sample) %>%
+  filter(maf > .1) #%>% ungroup() %>% summarize(length(unique(POS)))
+```
+```{r shared isnvs}
+# Apply function to determine probabilities
+alt_freq_thresholds <- c(.01,.02,.05, seq(.1,.4,by = .1))
+length(alt_freq_thresholds)
+
+# Add column so that pairwise function works
+vars_all <- var_df %>% mutate(GFF_FEATURE = NA)
+system.time(shared_df <- map(alt_freq_thresholds,calc_pairwise_overlaps) %>% map_dfr(~ as.data.frame(.)))
+dim(shared_df) # 54 
+shared_df
+
+# Add information about individual
+pair_df <- shared_df %>%
+  mutate(name1 = str_remove(name1, '_S.+'),
+         name2 = str_remove(name2, '_S.+')) %>%
+  separate(name1, sep = '-', into = c('cell1','sample_type1'), extra = 'merge', remove = FALSE) %>%
+  separate(name2, sep = '-', into = c('cell2','sample_type2'), extra = 'merge', remove = FALSE) %>%
+  mutate(pair_id = case_when(name1 == name2 ~ 'Sample',
+                               cell1 == cell2 ~ 'Cell',
+                               TRUE ~ 'Outside cell'))
+pair_df
+table(pair_df$pair_id)
+
+# Summarize by group type and frequency threshold.
+library(plyr)
+pair_df_summary <- summarySE(pair_df, measurevar='num_shared', groupvars=c('threshold','pair_id'))
+pair_df_summary <- pair_df_summary %>% mutate(pair_id = factor(pair_id, levels = c('Sample','Cell','Outside cell'))) %>%
+  mutate(threshold = threshold * 100)
+
+# Plot curves. 
+p0 <- pair_df_summary %>% 
+  ggplot(aes(x = threshold, y = num_shared, col = pair_id, group = pair_id))+
+  geom_errorbar(aes(ymin=num_shared-ci, ymax=num_shared+ci), width=.02, position=position_dodge(width=0.1)) +
+  geom_point(position=position_dodge(width=0.1)) + theme_classic() + 
+  xlab('Minor allele frequency threshold') + ylab('Shared iSNVs') +
+  scale_color_npg(name = 'Comparison type') + scale_x_log10()
+
+p0
+
+
+# Also look at TB profiler output - multiple lineages identified? 
+# Add SNP Eff to look at location of shared iSNVs. 
+# For each sample, plot historam of mafs. 
+p1 <- var_df %>%
+  group_by(Sample) %>%
+  filter(maf > 0) %>%
+  filter(str_starts(Sample, '10561') & !str_detect(Sample, 'culture')) %>%
+  mutate(Sample = case_when(Sample == "10561-Food_S7" ~ 'Personal utensils',
+                            Sample == "10561-Room_S8" ~ 'Room',
+                            Sample == "10561-BC_S6" ~ 'Bed',
+                            TRUE ~ as.character(NA))) %>%
+  ggplot(aes(x = maf)) +
+  geom_histogram() + 
+  facet_wrap(~Sample, scales = 'free') + 
+  theme_classic() + 
+  xlab('Minor allele frequency')
+p1
+ggsave(p1, filename = paste(plot_dir, '10561_maf.pdf', sep = ''), height = 2, width = 6)
+```
+```{r pairwise differences - including cultured Rif-resistant sample}
+
+fasta_file = '/labs/jandr/walter/tb/mtb/enviro/enviro_culture_msa_snps.fa'
+  
+# Read in fasta, get pairwise distances
+f3 <- read.dna(file = fasta_file, format = 'fasta')
+labels(f3)
+d3 <- dist.dna(f3, model = 'N', as.matrix = TRUE, pairwise.deletion = FALSE)  
+d3['11080-7651-envculture1',] # 393-400 SNPs distant to 10561 environmental samples
+
+# Look at amr resistance profile
+
+```
+```{r SRA submission}
+# Get names of bams
+bam_files = env_cov_files %>% enframe(name = 'sample', value = 'file_name') %>%
+  mutate(bam_file = str_replace(file_name, '.regions.bed.gz', '_bwa_H37Rv.merged.rmdup.bam'),
+         bam_file = str_replace(bam_file, 'stats/', 'bams'))
+bam_files
+
+# Add additional data
+bam_files <- bam_files %>% 
+  # Update incorrectly labeled sample
+  mutate(sample = case_when(sample == "8328-Food" ~ "4514-Food2", 
+                            TRUE ~ sample)) %>%
+  left_join(plot_df, by = 'sample') %>%
+  # Update incorrectly labeled sample
+  mutate(sample_type = case_when(sample == "4514-Food2" ~ 'Bed', 
+                                TRUE ~ sample_type ))
+
+# Organize for SRA submission
+sra_submission <- bam_files %>%
+  mutate(sample_name = sample, 
+    isolation_source = paste(sample_name = paste('Cell', str_remove(cell, 'MT_0'), sample_type, sep = '_')),
+    sample_title = sample_name,
+    attribute_package = case_when(sample_type == "Culture" ~ 'Pathogen.cl', 
+                             TRUE ~'Pathogen.env'), 
+    organism = 'Mycobacterium tuberculosis',
+    strain = sub_lineage,
+    genotype = sub_lineage,
+    isolate = case_when(sample_type == "Culture" ~ 'Sputum culture', 
+                             TRUE ~'Environmental sample'), 
+    collected_by = c('Renu Verma,Flora Martinez Figueira Moreira, Agne Oliveira do Prado Morais'), 
+    collection_date = 2021,
+    #isolation_source = sample_name,
+    geo_loc_name = 'Brazil: Dourados', 
+    lat_lon = '22.2236 S 54.8125 W',
+    host= case_when(sample_type == 'Culture' ~ 'Homo sapiens',
+                         TRUE ~ as.character(NA)),
+    host_sex = 'M', 
+    host_disease = case_when(sample_type == 'Culture' ~ 'Tuberculosis')) 
+
+
+# SRA Metadata
+sra_submission <- sra_submission %>%
+  mutate(library_ID = sample_name, 
+         title = 'Environmental sampling of M. tuberculosis', 
+         library_strategy = case_when(sample_type == 'Culture' ~ 'WGS',
+                                      TRUE ~ 'Targeted-Capture'),
+         library_source = 'Genomic',
+         library_selection = 'Hybrid Selection',
+         platform = 'Illumina',
+         instrument_model = 'Illumina MiSeq',
+         library_layout = 'paired',
+         filetype = 'bam',
+         # Correct BAM filename for incorrect sample
+         filename=basename(bam_file),
+         filename=case_when(sample_name == '4514-Food2' ~ str_replace(filename, '8328','4514'), 
+                            TRUE ~ filename),
+         assembly= 'NC_000962.3',
+         design_description = 'We used custom RNA baits tiling the M. tuberculosis genome to capture and sequence M. tuberculosis directly from environmental samples. We also sequenced cultured isolates from TB patients in the same prison cells.' )
+
+# Write SRA attributes
+sra_attributes <- sra_submission %>%
+  select(sample_name, attribute_package,organism, strain,isolate,collected_by,collection_date,geo_loc_name, isolation_source, lat_lon, genotype, host, host_disease) %>%
+  arrange(sample_name)
+sra_attributes
+writexl::write_xlsx(sra_attributes, path = '/labs/jandr/walter/tb/mtb/enviro/sra_attributes_enviro.xlsx')
+
+# Write SRA metadata
+sra_metadata <- sra_submission %>% select(sample_name, library_ID,title,library_strategy,library_source,library_selection,library_layout,platform,instrument_model, design_description, filetype, filename, assembly)
+
+writexl::write_xlsx(list('SRA_data' = sra_metadata), path = '/labs/jandr/walter/tb/mtb/enviro/sra_metadata_enviro.xlsx')
+
+```

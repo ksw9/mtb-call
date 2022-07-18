@@ -1,0 +1,48 @@
+name: trim-galore
+channels:
+  - bioconda
+  - r
+  - defaults
+  - conda-forge
+dependencies:
+  - _libgcc_mutex=0.1=main
+  - _openmp_mutex=5.1=1_gnu
+  - bz2file=0.98=py37h06a4308_1
+  - ca-certificates=2022.4.26=h06a4308_0
+  - certifi=2022.6.15=py37h06a4308_0
+  - cutadapt=1.18=py37h14c3975_1
+  - dbus=1.13.18=hb2f20db_0
+  - expat=2.4.4=h295c915_0
+  - fastqc=0.11.9=hdfd78af_1
+  - font-ttf-dejavu-sans-mono=2.37=hd3eb1b0_0
+  - fontconfig=2.13.1=h6c09931_0
+  - freetype=2.11.0=h70c0345_0
+  - glib=2.69.1=h4ff587b_1
+  - icu=58.2=he6710b0_3
+  - ld_impl_linux-64=2.38=h1181459_1
+  - libffi=3.3=he6710b0_2
+  - libgcc-ng=11.2.0=h1234567_1
+  - libgomp=11.2.0=h1234567_1
+  - libpng=1.6.37=hbc83047_0
+  - libstdcxx-ng=11.2.0=h1234567_1
+  - libuuid=1.0.3=h7f8727e_2
+  - libxcb=1.15=h7f8727e_0
+  - libxml2=2.9.14=h74e7548_0
+  - ncurses=6.3=h5eee18b_3
+  - openjdk=11.0.13=h87a67e3_0
+  - openssl=1.1.1q=h7f8727e_0
+  - pcre=8.45=h295c915_0
+  - perl=5.26.2=h14c3975_0
+  - pigz=2.6=h27cfd23_0
+  - pip=22.1.2=py37h06a4308_0
+  - python=3.7.13=h12debd9_0
+  - readline=8.1.2=h7f8727e_1
+  - setuptools=61.2.0=py37h06a4308_0
+  - sqlite=3.38.5=hc218d9a_0
+  - tk=8.6.12=h1ccaba5_0
+  - trim-galore=0.6.7=hdfd78af_0
+  - wheel=0.37.1=pyhd3eb1b0_0
+  - xopen=0.7.3=py_0
+  - xz=5.2.5=h7f8727e_1
+  - zlib=1.2.12=h7f8727e_2
+prefix: /home/kwalter/.conda/envs/trim-galore

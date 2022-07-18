@@ -1,0 +1,208 @@
+---
+title: "Mtb coverage"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/labs/jandr/walter/tb/mtb_tgen/')
+setwd('/labs/jandr/walter/tb/mtb_tgen/')
+
+rm(list = ls()) 
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(fs)
+library(ggsci)
+library(ape)
+library(harrietr)
+#save.image('/labs/jandr/walter/tb/mtb/workflow/scripts/plot_coverage.RData')
+load('/labs/jandr/walter/tb/mtb/workflow/scripts/plot_coverage.RData')
+
+plot_dir = '/labs/jandr/walter/tb/mtb/process/plots/'
+source(file = '/labs/jandr/walter/lambda/scripts/isnv_functions.R')
+```
+
+
+```{r updated snakemake: read in cov files}
+
+## Read in per sample coverage files.  
+#batch_dirs = list.files(path = working_dir,full.names = TRUE)
+#sample_dirs = dir(batch_dirs, full.names = TRUE)
+#cov_files = list.files(path = paste(sample_dirs,'/stats/', sep = ''), pattern = glob2rx('*_bwa_H37Rv_combined_stats.csv'),full.names = TRUE)
+#length(cov_files) # 4222
+
+# Read in full file. 
+cov_df <- read_tsv(file = '/labs/jandr/walter/tb/mtb_tgen/working/combined_stats.csv') %>%
+  filter(!sampl == 'sampl') %>%
+  separate(sampl, sep = '/', into = c('tmp','batch','samp','tmp2','tmp3'), remove = FALSE) %>%
+  select(-c(tmp,tmp2,tmp3)) %>% 
+  mutate_at(vars(-sampl,-samp,-batch), as.numeric) %>%
+  # The Stanford samples were not labeled as such in the coverage outputs. Rename batch.
+  mutate(batch = case_when(batch == 'Stanford' ~ 'MT06-2022-03-04_withEnvCult', 
+                           TRUE ~ batch))
+
+table(cov_df$batch)
+
+```
+```{r identify samples for possible resequencing}
+# Number of samples with median cov under different levels
+
+cov_df %>%
+  filter(str_starts(batch, 'MT') | batch == 'SU022') %>%
+  group_by(samp) %>%
+  mutate(sample_max_cov = max(MEDIAN_COVERAGE)) %>%
+  arrange(sampl, -MEDIAN_COVERAGE) %>%
+  relocate(MEDIAN_COVERAGE) %>%
+  ungroup() %>%
+  summarize(n_30 = length(which(sample_max_cov < 30)),
+            n_35 = length(which(sample_max_cov < 35)),
+            n_40 = length(which(sample_max_cov < 40)),
+            n_50 = length(which(sample_max_cov < 50)),
+            n_60 = length(which(sample_max_cov < 60)),
+            n_70 = length(which(sample_max_cov < 70)),
+            n_80 = length(which(sample_max_cov < 80)),
+            n_100 = length(which(sample_max_cov < 100)))
+  
+# Examine samples with less than 50X cov
+to_reseq <- cov_df %>%
+  filter(str_starts(batch, 'MT') | batch == 'SU022') %>%
+  group_by(samp) %>%
+  mutate(sample_max_cov = max(MEDIAN_COVERAGE)) %>%
+  filter(sample_max_cov < 40 ) %>%
+  filter(!samp %in% c('TBIRm1','TBIRm2')) 
+
+# Write for Eugene
+write_csv(to_reseq, file = '/labs/jandr/walter/tb/mtb_tgen/working/to_reseq_041522.csv')
+```
+```{r read in coverage file}
+# Combined coverage including per-run statistics
+cov_file <- 'results/stats/combined_per_run_sample_stats.csv'
+cov_file2 <- '/labs/jandr/walter/tb/mtb_tgen/results/IS-1000/stats/combined_per_run_sample_stats.csv'
+
+df_per_run <- read_delim(cov_file,delim = '\t')
+df_per_run <- df_per_run %>% 
+  separate(sampl, sep = '/', into = c('tmp','sample','run','tmp2','tmp3')) %>%
+  select(-c(tmp,tmp2,tmp3)) %>% filter(!is.na(sample)) %>%
+  mutate_at(vars(-sample,-run), as.numeric)
+#write_csv(df_per_run, file = 'process/combined_per_run_sample_stats_formt.csv')
+
+# Second cov file.
+df_per_run2 <- read_delim(cov_file2,delim = '\t')
+df_per_run2 <- df_per_run2 %>% bind_rows(df_per_run2) %>%
+  separate(sampl, sep = '/', into = c('tmp','run','sample','tmp2','tmp3')) %>%
+  select(-c(tmp,tmp2,tmp3)) %>% filter(!is.na(sample)) %>%
+  mutate_at(vars(-sample,-run), as.numeric)
+df_per_run2 <- df_per_run2 %>% distinct()
+
+# Combine
+df_per_run <- bind_rows(df_per_run, df_per_run2) 
+
+# Summarize            
+df_per_run_summary <- df_per_run %>%
+  group_by(run) %>%
+  summarize(n = n(), mean(MEAN_COVERAGE),
+            mean(SD_COVERAGE),
+            mean(MEDIAN_COVERAGE),
+            mean(PCT_50X), 
+            mean(mycobacterium_per, na.rm = TRUE),
+            mean(mycobacterium_reads, na.rm = TRUE),
+            mean(non_mtb_sp_per, na.rm = TRUE))
+df_per_run_summary
+#write_csv(df_per_run_summary, file = 'process/combined_per_run_sample_stats_summary.csv')
+
+df <- read_delim(cov_file,delim = '\t') %>% 
+  filter(!sampl == 'sampl') %>%
+  mutate_at(vars(-sampl), as.numeric)
+
+# Split sample name into run and sample
+df <- df %>% 
+  mutate(sampl = str_remove(sampl,'results/trim/')) %>%
+  separate(sampl, sep = '/', into = c('run','sample'))
+
+# Read in coverage for SU22. 
+cov_df <- read_delim('/labs/jandr/walter/tb/mtb_tgen/working/SU022_combined_stats.csv', delim = '\t')
+cov_df <- df %>% filter(!sampl == 'sampl') %>%
+  mutate_at(vars(-sampl), as.numeric)
+dim(cov_df)
+cov_df
+# Read in all coverage files.
+qc <- purrr::map_dfr(multiqc_files, 
+  ~read_csv(.x),.id = "source") %>%
+  distinct_at(vars(-source), .keep_all = TRUE)
+
+```
+
+```{r plot coverage by run-sample}
+ggplot(df, aes(x = PCT_10X*100, y = MEAN_COVERAGE)) + 
+  geom_point() + 
+  theme_classic() +
+  scale_color_viridis_d() + 
+  xlab('% >10X coverage') + ylab('Mean coverage')
+
+# Summarize SU022. 
+df %>%
+  summarize(mean(MEAN_COVERAGE), 
+            sd(MEAN_COVERAGE),
+            mean(PCT_40X),
+            sd(PCT_40X), 
+            length(which(MEAN_COVERAGE>30)), 
+                   length(which(MEAN_COVERAGE>20)),
+                          length(which(MEAN_COVERAGE>50)), 
+            n= n())
+```
+
+```{r number of samples and mean coverage by run}
+df %>% group_by(run) %>%
+  summarize(n = n(),
+    across(2:38, mean, na.rm = TRUE))
+```
+
+```{r samples failing cov thresholds}
+df %>% group_by(run) %>%
+  summarize(n = n(), 
+            failed_samps = length(which(MEAN_COVERAGE < 45 | PCT_10X < .85)))
+```
+
+```{r coverage per-sample (including multiple runs)}
+data_path <- "results/stats/"  
+
+samp_df <- dir_ls(data_path, glob = "*cov_stats.txt") %>% 
+  map_dfr(read_delim, delim = '\t',skip = 6, n_max = 1, .id = 'filename') %>%
+  mutate(sample = str_remove(filename, 'results/stats/'), 
+         sample = str_remove(sample, '_bwa_H37Rv_cov_stats.txt')) %>% relocate(sample)
+
+# List samples we may need to re-run. 
+samp_df %>%
+  filter(MEAN_COVERAGE < 25 | PCT_10X < .85)
+```
+```{r per-sample stats}
+working_dir = "/labs/jandr/walter/tb/mtb/"
+dirs <- paste(dir(path = '/labs/jandr/walter/tb/mtb/results/', full.names = TRUE), '/stats/', sep = '')
+
+# Per-sample coverage summary
+cov_files <- dir(path = dirs, glob2rx('*_bwa_H37Rv_cov_stats.txt'), full.names = TRUE)
+names(cov_files) <- str_remove(basename(cov_files), "_S.+")
+cov_files
+
+# Read in files
+cov_df <- purrr::map_dfr(cov_files, 
+  ~as.data.frame(read_delim(.x, delim="\t", skip = 6, n_max = 2, col_names = TRUE)), .id = 'sample')
+cov_df <- cov_df %>% filter(!GENOME_TERRITORY == '## HISTOGRAM')
+cov_df
+
+# Read in lineage summary
+lin_file <- '/labs/jandr/walter/tb/mtb/results/stats/tbprofiler.txt'
+lin <- read_delim(lin_file, delim = '\t')
+lin <- lin %>% mutate(sample = str_remove(sample, '_S.+'))
+lin <- lin %>%
+  mutate(sub_lineage_short = str_sub(sub_lineage, 8, 10)) %>% relocate(sub_lineage_short)
+
+# Read in AMR from Mykrobe. Multiple rows for each sample. 
+amr_files <- Sys.glob('/labs/jandr/walter/tb/mtb/results/*/stats/*_amr.csv')
+amr <- purrr::map_dfr(amr_files, 
+  ~as.data.frame(read_delim(.x, delim=",", col_names = TRUE))) %>%
+  mutate(sample = str_remove(basename(files), '_S.+'))
+
+# Combine
+combined_df <- cov_df %>%
+  left_join(lin, by = 'sample')
+```

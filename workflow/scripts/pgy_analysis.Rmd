@@ -1,0 +1,1708 @@
+---
+title: "pgy_analysis 2022"
+output: html_document
+---
+
+```{r setup}
+root_dir = '/labs/jandr/walter/tb/pgy/'
+working_dir = paste('/labs/jandr/walter/tb/pgy/', sep = '')
+knitr::opts_knit$set(root.dir = root_dir)
+getwd()
+
+library(diversitree)
+library(tidyverse)
+library(Hmisc)
+library(ggsci)
+library(furrr)
+library(ape)
+library(harrietr)
+library(ggridges)
+library(ggtree)
+library(pals)
+library(scales)
+library(ggnewscale)
+library(pegas)
+library(treedater)
+library(lubridate)
+library(beautier)
+library(adephylo)
+library(ggtree)
+library(treeio)
+library(infer)
+library(ggimage) # currently having issues.
+#save.image('/labs/jandr/walter/tb/pgy/pgy.RData')
+#load('/labs/jandr/walter/tb/pgy/pgy.RData')
+msa_dir = '/labs/jandr/walter/tb/pgy/msa/'
+xml_dir =  '/labs/jandr/walter/tb/pgy/xml/'
+plot_dir = '/labs/jandr/walter/tb/pgy/plots/'
+meta_dir = '/labs/jandr/walter/tb/pgy/metadata/'
+
+# Source functions
+source('/labs/jandr/walter/tb/mtb/workflow/scripts/add_asc_correction_xml.R')
+```
+
+```{r select PGY samples }
+stats_df <- read_csv('/labs/jandr/walter/tb/mtb_tgen/combined_stats/stats_df.csv')
+
+# Read in Paraguay specific metadata.
+meta_filename = '/labs/jandr/walter/tb/pgy/metadata/pgy_metadata.csv'
+pgy_df <- read_csv(meta_filename)
+pgy_df <- pgy_df %>% relocate(seq_name, samp,batch,path) %>%
+  mutate(seq_name = case_when(!is.na(samp) ~ str_remove(samp, '_S.+'), 
+                                TRUE ~ seq_name))
+
+pgy_df <- pgy_df %>%
+  mutate(seq_name = case_when(seq_name == 'Calixto.Q' ~ 'CalixtoQ',
+                              seq_name == 'CR32.AV' ~ 'CR32AV',
+                              seq_name == 'CR419 (Jan19.21)' ~ 'CR419-Jan19-21',
+                              seq_name == 'CR419.Julio' ~ 'CR419Julio',
+                              seq_name == 'Fabio.S' ~ 'FabioS',
+                              seq_name == 'CR746.DamianS' ~ 'CR746DamianS',
+                              seq_name == 'CR447.Oavg' ~ 'CR447Oavg',
+                              seq_name == 'Gustavo.R' ~ 'GustavoR',
+                              seq_name == 'Jorge.G' ~ 'JorgeG',
+                              seq_name == 'Richard.G' ~ 'RichardG',
+                              seq_name == 'Wifrido.F' ~ 'WifridoF',
+                              seq_name == 'Zacarias.B' ~ 'ZacariasB', 
+                              seq_name == 'CR454' ~ 'TB-CPath-Croda-IS-1045-CR-454-a',
+                              TRUE ~ seq_name))
+
+# Look at samples not in the sequence database
+pgy_df[which(!pgy_df$seq_name %in% stats_df$sample),] %>% relocate(seq_name, samp,batch,path) # 5 not found: 2013,2063,CR319,CR333,CR335
+                           
+# Rename columns 
+pgy_df <- pgy_df %>%
+  rename(prisoner = prisioner, prison = prisionname, wasprisoner = wasprisioner, prisondate = prisiondate)
+
+# Reformat column content
+pgy_df <- pgy_df %>% mutate(inc_status = case_when(prisoner == 1 ~ 'Incarcerated',
+                                wasprisoner == 1 ~ 'Formerly incarcerated',
+                                TRUE ~ 'Community'), 
+         location = case_when(regioncode == 10 ~ 'Ciudad del Este',
+                              regioncode == 18 ~ 'Asunción',
+                              regioncode == 99 ~ 'Other city'), 
+         prison_name = case_when(prison == 1 ~ 'Penal CDE',
+                                 prison == 2 ~ 'Tacumbú',
+                                 prison == 3 ~ 'Coronel Oviedo',
+                                 prison == 4 ~ 'Encarnación',
+                                 prison == 5 ~ 'Pedro Juan Cabralleo',
+                                 prison == 6 ~ 'Penal Esperanza',
+                                 prison == 7 ~ 'Misiones',
+                                 prison == 8 ~ 'Concepción', 
+                                 TRUE ~ as.character(NA)))
+
+# Combine pgy_df with the stats data.
+pgy_df <- pgy_df %>%
+  left_join(stats_df, by = c('seq_name' = 'sample', ('batch' = 'batch')))
+
+# Include samples passing coverage filter and that are unique TB diagnoses
+pgy_df <- pgy_df %>% 
+  mutate(pass_cov_filt = case_when(MEDIAN_COVERAGE >=25 & PCT_10X > .8 ~ 1, TRUE ~ 0)) %>%
+# Look at unique samples based on identification number and diagnosis date
+  group_by(identificationnumber, datedx) %>%
+  mutate(n = n()) %>%
+  arrange(-MEDIAN_COVERAGE) %>%
+  mutate(id = row_number(), 
+         include = case_when(pass_cov_filt == 1 & id == 1 ~ 1, TRUE ~ 0))
+table(pgy_df$include)
+
+# PGY samples with different target coverage.
+pgy_df %>%
+  ggplot(aes(x=MEDIAN_COVERAGE, fill = batch, alpha = .2)) + 
+  geom_histogram() + theme_classic()
+
+pgy_df %>%
+  dplyr::summarize(length(which(MEDIAN_COVERAGE >=50 & PCT_10X > .8)), 
+                  length(which(MEDIAN_COVERAGE >=40 & PCT_10X > .8)),
+                  length(which(MEDIAN_COVERAGE >=25 & PCT_10X > .8)))
+
+# Write list of fasta sequences to combine: 488 sequences passing filters from unique TB episodes.
+pgy_df %>% 
+  filter(include == 1) %>% relocate(stats_filename) %>% #pull(identificationnumber) %>% unique() 482 unique identification numbers.
+  mutate(fasta_filename = str_replace(stats_filename,'stats', 'fasta'), 
+         fasta_filename = str_replace(fasta_filename, '_all_stats.csv', '_gatk_qfilt.fa')) %>%
+  ungroup() %>%
+  select(fasta_filename) %>% #filter(!file.exists(fasta_filename)) %>% # All exist.
+  write_csv('/labs/jandr/walter/tb/pgy/msa/pgy_fasta_list_single.txt', col_names = FALSE)
+
+# Duplicated name: 35 - different identification numbers. Rename results/corrida1510/35/fasta/35_bwa_H37Rv_gatk_qfilt.fa; 35_corrida1510
+pgy_df <- pgy_df %>%
+  mutate(seq_name = case_when(path == 'data/pgy/corrida1510/35_S12_L001_R1_001.fastq.gz' ~ '35_corrida1510', 
+            TRUE ~ seq_name))
+
+# Write list of VCF files to combine: 532 with median coverage >=25
+pgy_df %>% 
+  filter(include == 1) %>% relocate(stats_filename) %>% #pull(identificationnumber) %>% unique() 482 unique identification numbers.
+  mutate(vcf_filename = str_replace(stats_filename,'stats', 'vars'), 
+         vcf_filename = str_replace(vcf_filename, '_all_stats.csv', '_gatk_qfilt.vcf.gz')) %>%
+  ungroup() %>%
+  select(vcf_filename) %>% #filter(!file.exists(vcf_filename)) %>% # All exist.
+  write_csv('/labs/jandr/walter/tb/pgy/msa/pgy_vcf_list.txt', col_names = FALSE)
+
+# Write list of TB-profiler files to combine: 532 with median coverage >=25; 522 unique. These 522 unique are included
+pgy_df %>% 
+  filter(include == 1) %>% relocate(stats_filename) %>% #pull(identificationnumber) %>% unique() 482 unique identification numbers.
+  mutate(filename = str_replace(stats_filename,'stats', 'stats/results'), 
+         filename = str_replace(filename, '_bwa_H37Rv_all_stats.csv', '.results.json')) %>%
+  ungroup() %>%
+  select(filename) %>% filter(!file.exists(filename)) %>% # All exist.
+  write_csv('/labs/jandr/walter/tb/pgy/tb-profiler/tb-profiler.txt', col_names = FALSE)
+
+```
+```{r describe samples passing targets}
+tb_profile_file ='/labs/jandr/walter/tb/pgy/tb-profiler/tbprofiler.txt'
+tb_profile = read_delim(tb_profile_file)
+dim(tb_profile)
+table(tb_profile$DR_type, useNA = 'always')
+
+# Add ahpC mutation information
+ahpC <- read_csv('/labs/jandr/walter/tb/pgy/tb-profiler/ahpC_profile.csv', col_names = c('path','locus','gene','allele','ahpC_fraction','drug'))
+ahpC
+ahpC <- ahpC %>% 
+  mutate(path = str_extract(path, 'results/.*/stats/') %>% str_remove('results/') %>% str_remove('/stats/')) %>%
+  separate(path, into = c('batch','seq_name'), sep = '/',remove = FALSE)
+
+# Add TB-profiler data to pgy_df
+pgy_df <- pgy_df %>%
+  left_join(tb_profile, by = c('seq_name' = 'sample'))
+pgy_df <- pgy_df %>% ungroup()
+
+# Add the ahpC info
+pgy_df <- pgy_df %>%
+  left_join(ahpC %>% select(seq_name,batch, ahpC_fraction), by = c('seq_name' = 'seq_name','batch' = 'batch'))
+
+# Add mixed infection column
+pgy_df <- pgy_df %>% ungroup() %>%
+  mutate(mixed = case_when(str_detect(sub_lineage, ';') ~ 'Mixed',
+                           TRUE ~ 'Single')) %>%
+  separate(sub_lineage, sep = ';', into = c('sub_lineage1', 'sub_lineage2'), remove = FALSE)
+
+# Add missing DR sensitivity because of duplicate sample name
+pgy_df <- pgy_df %>%
+  mutate(DR_type = case_when(seq_name == '35_corrida1510' ~'Sensitive', TRUE ~ DR_type),
+         sub_lineage1 = case_when(seq_name == '35_corrida1510' ~'lineage4.4.1.2', TRUE ~ sub_lineage1)
+         ) 
+# Write this csv. 
+pgy_df %>%
+  relocate(include,pass_cov_filt,id) %>%
+  arrange(identificationnumber, id) %>%
+  write_csv(file = paste(meta_dir, 'pgy_full_data.csv', sep = ''))
+
+# Summarize incarceration status and other demographics
+pgy_df %>% filter(include == 1) %>%
+  select(prisoner,location) %>% table(useNA = 'always')
+
+# Summarize mixed infections
+pgy_df %>% filter(include == 1) %>%
+  select(mixed) %>% table() %>% prop.table()
+
+# Summarize main lineage
+pgy_df %>% filter(include == 1) %>%
+  pull(main_lineage) %>% table()
+
+# Summarize sub-lineage
+pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
+  group_by(sub_lineage1) %>%
+    dplyr::summarize(n=n())%>%
+  mutate(prop=n/sum(n)) %>%
+  mutate(across(where(is.numeric), round, 3))
+  
+mixed_samps <- pgy_df %>% filter(include == 1 & mixed == 'Mixed') %>% pull(seq_name)
+mixed_samps
+
+# Summarize AMR. 
+pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
+  # Update DR; don't include ahpC mutation
+  mutate(DR_update = case_when(isoniazid == 'ahpC_c.-74G>A' & rifampicin == '-' ~ 'Sensitive', TRUE ~ DR_type)) %>%
+  group_by(DR_update) %>% 
+  dplyr::summarize(n=n())%>%
+  mutate(prop=n/sum(n)) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+# Summarize isoniaizid resistance genotype
+pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
+  group_by(isoniazid) %>% 
+  filter(isoniazid != '-') %>%
+  dplyr::summarize(n=n())%>%
+  mutate(prop=n/sum(n)) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+# Summarize rif resistance genotype
+pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
+  pull(rifampicin) %>% table()
+
+# Summarize resistance by lineage
+pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
+  filter(DR_type != 'Sensitive') %>%
+  group_by(sub_lineage1) %>% 
+  dplyr::summarize(n=n())%>%
+  mutate(prop=n/sum(n)) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+# Chi-square test for association of any drug-resistance and sublineage
+pgy_df %>% filter(include == 1 & mixed == 'Single') %>% 
+  #filter(DR_type != 'Sensitive') %>%
+  mutate(any_resistance = case_when(DR_type != 'Sensitive' ~ 'resistant',
+                                    TRUE ~ 'sensitive')) %>%
+  chisq_test(any_resistance ~ sub_lineage1)
+
+# Were all of the ahpC resistance mutations on the same sub-lineage? Yes. 
+pgy_df %>% filter(include == 1 & mixed == 'Single') %>% 
+  filter(isoniazid == 'ahpC_c.-74G>A') %>%
+  group_by(sub_lineage1) %>% 
+  dplyr::summarize(n=n())%>%
+  mutate(prop=n/sum(n)) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+# First appearance of this mutation
+pgy_df %>% filter(include == 1 & mixed == 'Single') %>% 
+  filter(isoniazid == 'ahpC_c.-74G>A') %>%
+  dplyr::summarize(range(datedx))
+
+# Look at association between sub-lineage and city. 
+pgy_df %>%
+  filter(include == 1 & mixed == 'Single') %>%
+  chisq_test(sub_lineage ~ location)
+
+# Proportions of sub-lineages by city. 
+pgy_df %>%
+  filter(include == 1 & mixed == 'Single') %>%
+  group_by(location, sub_lineage1) %>% 
+  dplyr::summarize(n=n())%>%
+  mutate(total = sum(n),prop=n/sum(n)) %>%
+  mutate(across(where(is.numeric), round, 3)) %>%
+  arrange(location,-prop)
+
+# Association between ahpC mutation and any previous incarceration
+pgy_df %>% filter(include == 1 & mixed == 'Single') %>% 
+    mutate(ahpC_mutation = case_when(isoniazid == 'ahpC_c.-74G>A' ~ 'resistant',
+                                    TRUE ~ 'sensitive'),
+           inc_ever = case_when(inc_status == 'Community' ~ 'Community', TRUE ~ 'Inc. history')) %>%
+  #select(ahpC_mutation, inc_ever) %>% table()
+  chisq_test(ahpC_mutation ~ inc_ever)
+
+# Other resistance: 1 pyrazinamide, 2 streptomycin, 2 fluoroquinolones
+pgy_df %>% filter(include == 1 & mixed == 'Single') %>%  filter(DR_type == 'Drug-resistant' & isoniazid == '-' & rifampicin == '-') %>% 
+  relocate(names(tb_profile)[10:29])
+
+# Look at association between sub-lineage and inc_status. 
+pgy_df %>%
+  mutate(ever_inc = case_when(inc_status == 'Community' ~ 'Community', TRUE ~ 'Inc')) %>%
+  filter(include == 1 & mixed == 'Single') %>%
+  chisq_test(sub_lineage ~ ever_inc)
+
+# Proportions of sub-lineages by inc_status
+pgy_df %>%
+  filter(include == 1 & mixed == 'Single') %>%
+  mutate(ever_inc = case_when(inc_status == 'Community' ~ 'Community', TRUE ~ 'Inc')) %>%
+  group_by(ever_inc,sub_lineage1) %>% 
+  dplyr::summarize(n=n())%>%
+  mutate(total = sum(n),prop=n/sum(n)) %>%
+  mutate(across(where(is.numeric), round, 3)) %>%
+  filter(total > 10) %>%
+  arrange(ever_inc,-prop)
+
+# More sub_lineages in prison?
+pgy_df %>%
+  filter(include == 1 & mixed == 'Single') %>%
+  group_by(inc_status) %>% 
+  dplyr::summarize(length(unique(sub_lineage1)))
+```
+
+```{r stacked bar plot of sublineages}
+
+# Sub lineage stacked barplot
+study_tab <- pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
+  mutate(phylo_group  = case_when(str_starts(sub_lineage1, 'lineage4.3') ~ 'LAM',
+                           str_starts(sub_lineage1, 'lineage4.1.2') ~ 'Haarlem',
+                           str_starts(sub_lineage1, 'lineage4.4.1') ~ 'S',
+                           str_starts(sub_lineage1, 'lineage4.1.1') ~ 'X',
+                           TRUE ~ 'Other Lineage 4'),
+        study = 'Study samples') %>%
+  group_by(phylo_group) %>%
+  dplyr::summarize(n=n())%>%
+  mutate(prop=n/sum(n)) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+# Group by incarceration status. 
+status_tab  <- pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
+  mutate(phylo_group  = case_when(str_starts(sub_lineage1, 'lineage4.3') ~ 'LAM',
+                           str_starts(sub_lineage1, 'lineage4.1.2') ~ 'Haarlem',
+                           str_starts(sub_lineage1, 'lineage4.4.1') ~ 'S',
+                           str_starts(sub_lineage1, 'lineage4.1.1') ~ 'X',
+                           TRUE ~ 'Other Lineage 4'),
+        study = 'Study samples') %>%
+  group_by(prisoner) %>%
+  dplyr::mutate(n_group=n())%>%
+  group_by(prisoner, phylo_group) %>%
+  dplyr::summarize(proportion=n()/n_group[1]) %>%
+  mutate(study = 'Current study') %>%
+  rename(status = prisoner)
+status_tab
+
+# Group by status and city
+city_tab  <- pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
+  mutate(phylo_group  = case_when(str_starts(sub_lineage1, 'lineage4.3') ~ 'LAM',
+                           str_starts(sub_lineage1, 'lineage4.1.2') ~ 'Haarlem',
+                           str_starts(sub_lineage1, 'lineage4.4.1') ~ 'S',
+                           str_starts(sub_lineage1, 'lineage4.1.1') ~ 'X',
+                           TRUE ~ 'Other Lineage 4'),
+        study = 'Study samples') %>%
+  group_by(prisoner, location) %>%
+  dplyr::mutate(n_group=n())%>%
+  group_by(prisoner, location, phylo_group) %>%
+  dplyr::summarize(proportion=n()/n_group[1]) %>%
+ #mutate(study = 'Current study') %>%
+  rename(status = prisoner, study = location)
+city_tab
+
+# Plot temporal continuity of sub-lineages
+candia_tab <- data.frame(study = '2003', phylo_group = c('LAM','S','Haarlem','Beijing','T','X'), proportion = c(52.3,9.5,18.2,.5,8.6,0.9), status = NA) 
+
+# Combine all dataframes
+combined_tab <- bind_rows(city_tab,status_tab,candia_tab) %>%
+  mutate(study = factor(study, levels = c("Current study","Asunción","Ciudad del Este","Other city", "2003" )), 
+         phylo_group = factor(phylo_group, levels = c('Beijing','Haarlem','LAM','S','T','X','Other Lineage 4')),
+         status = case_when(status == 1 ~ 'Incarcerated',
+                            status == 0 ~ 'Community',
+                            TRUE ~ 'Unreported'))
+combined_tab
+
+combined_tab %>%
+  ggplot(aes(fill = phylo_group, x = status, y = proportion)) + 
+  geom_bar(stat = 'identity', position = 'fill') + 
+  facet_grid(~study, scales = 'free_x', space = 'free') + 
+  theme_classic() + 
+  scale_fill_lancet(name = 'Sub lineage') + 
+  xlab('Incarceration status') + ylab('Proportion') + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Test for differences in proportions - could the incarcerated pop association with the Haarlem lineage be driving greater proprtion observed in the comunity. 
+pgy_df %>%
+  filter(include == 1 & mixed == 'Single') %>%
+  mutate(year = year(datedx)) %>%
+  mutate(phylo_group  = case_when(str_starts(sub_lineage1, 'lineage4.3') ~ 'LAM',
+                           str_starts(sub_lineage1, 'lineage4.1.2') ~ 'Haarlem',
+                           str_starts(sub_lineage1, 'lineage4.4.1') ~ 'S',
+                           str_starts(sub_lineage1, 'lineage4.1.1') ~ 'X',
+                           TRUE ~ 'Other Lineage 4')) %>%
+  group_by(year, prisoner, phylo_group) %>%
+  dplyr::summarize(n = n()) %>%
+  mutate(prop = n/sum(n)) %>%
+  ggplot(aes(x = year, y = prop, color = phylo_group, group = phylo_group)) + 
+  geom_line() + facet_wrap(~prisoner) + theme_classic()
+
+
+# Add ARIMA test for lag in lineage prevalence.
+
+
+```
+```{r SNP MSA, join with metadata}
+# SNP MSA
+snps_fasta <- '/labs/jandr/walter/tb/pgy/msa/pgy_msa_snps.fa'
+# Need to use read.dna function so that DNAbin has row names
+f <- read.dna(snps_fasta,format = 'fasta') # To get the characters, use, as.character = TRUE, to input matrix, use, as.matrix = TRUE. (Format will not be DNAbin)
+str(f)
+
+# Strange pattern where '1' is added to end of sample name.
+new_labels <- str_remove(labels(f), "1$")
+rownames(f) <- new_labels
+rownames(f)[which(!rownames(f) %in% pgy_df$seq_name)] # all fasta names are in seq_name
+
+samps <- pgy_df %>% filter(include == 1 & mixed == 'Single') %>% pull(seq_name)
+f <- f[samps,]
+
+# Examine nucelotide composition of msa
+f_nucs <- read.dna(snps_fasta,format = 'fasta', as.character = TRUE) # to input matrix, use, as.matrix = TRUE. (Format will not be DNAbin)
+nucs = apply(f_nucs, MARGIN = 1, FUN = table)
+ns = as.data.frame(nucs['n',]) %>% rownames_to_column(var = 'seq_name') %>% rename(ns = 'nucs["n", ]') %>% mutate(seq_name = str_remove(seq_name,"1$"))
+hist(nucs['n',]/ dim(f_nucs)[2]*100) # many samples have more than 30% SNP sites missing. why??
+
+# Add Ns to df
+pgy_df <- pgy_df %>%
+  left_join(ns, by = 'seq_name')
+
+# Look at relationship between ns and coverage
+pgy_df %>% 
+  ggplot(aes(x = PCT_10X, y = ns)) + 
+  geom_point()
+
+# Try trimming with microseq packages- does not work. # Try with clipkit
+pgy_df %>% 
+  arrange(-n)
+
+
+# Pairwise distances
+d <- dist.dna(f, model = 'N', pairwise.deletion = TRUE, as.matrix = TRUE) 
+d_long <- d %>% melt_dist() #%>% dplyr::summarize(range(dist), mean(dist), median(dist))
+
+#d_long <- dist_long(f, order = NULL, dist = "N") # Don't use, this does not perform pairwise deletion
+d_long
+
+# Histogram of all pairwise distances
+d_long %>%
+  ggplot(aes(x = dist)) + 
+  geom_histogram() + theme_classic()
+
+# Join with metadata
+d_long <- d_long %>%
+  # Join iso1
+  left_join(pgy_df %>% select(seq_name, prisoner, prison, wasprisoner, prisondate, regioncode, datedx, identificationnumber, age, sex, previoustto, historytto, vih, resistance, sub_lineage, main_lineage, mixed, sub_lineage1,sub_lineage2), by = c('iso1' = 'seq_name')) %>%
+  # Join iso2
+    left_join(pgy_df %>% select(seq_name, prisoner, prison, wasprisoner, prisondate, regioncode, datedx, identificationnumber, age, sex, previoustto, historytto, vih, resistance, sub_lineage, main_lineage, mixed, sub_lineage1,sub_lineage2), by = c('iso2' = 'seq_name'), suffix = c('.x','.y'))
+
+# Exclude mixed infections
+d_long <- d_long %>% 
+  filter(!(mixed.x == 'Mixed' | mixed.y == 'Mixed'))
+```
+```{r pairwise dist plots}
+
+# Pairwise distances by region
+d_long <- d_long %>%
+  mutate(region_comp = case_when(regioncode.x == regioncode.y ~ 'Within city', 
+                                 regioncode.x != regioncode.y ~ 'Outside city'), 
+         prisoner_comp = case_when(prisoner.x == 0 & prisoner.y == 0 ~ 'Not incarcerated',
+                                   (prisoner.x == 0 & prisoner.y == 1) | (prisoner.x == 1 & prisoner.y == 0) ~ 'Incarcerated-Non-incarcerated',
+                                  prisoner.x == 1 & prisoner.y == 1 ~ 'Incarcerated',
+                                  TRUE ~ as.character(NA)), 
+         prison_comp = case_when(prison.x == prison.y ~ 'Same prison',
+                                 prison.x != prison.y ~ 'Different prison',
+                                 TRUE ~ as.character(NA)), 
+         lineage_comp = case_when(sub_lineage.x == sub_lineage.y ~ 'Same sub-lineage',
+                                  main_lineage.x == main_lineage.y ~ 'Same main lineage',
+                                  main_lineage.x != main_lineage.y ~ 'Different lineage',
+                                  TRUE ~ as.character(NA)), 
+         mixed_comp = case_when(mixed.x == 'Mixed' & mixed.y == 'Mixed' ~ 'Both mixed',
+                                mixed.x == 'Mixed' | mixed.y == 'Mixed' ~ 'One mixed',
+                                TRUE ~ 'Neither mixed'))
+
+# Plot by region
+d_long %>%
+  ggplot(aes(x = dist, y = region_comp, fill = region_comp)) +
+  geom_violin() + theme_classic() + 
+  scale_fill_aaas() + theme(axis.title.y = element_blank())
+
+# Plot by prison status
+d_long %>%
+  ggplot(aes(x = dist, y = prisoner_comp, fill = prisoner_comp)) +
+  geom_violin() + theme_classic() + 
+  scale_fill_aaas() + theme(axis.title.y = element_blank())
+
+# Plot by prison
+d_long %>%
+  ggplot(aes(x = dist, y = prison_comp, fill = prison_comp)) +
+  geom_violin() + theme_classic() + 
+  scale_fill_aaas() + theme(axis.title.y = element_blank())
+
+# Plot by lineage
+d_long %>%
+  ggplot(aes(x = dist, y = lineage_comp, fill = lineage_comp)) +
+  geom_density_ridges() + theme_classic() + 
+  scale_fill_aaas() + theme(axis.title.y = element_blank())
+
+```
+
+```{r plot IQ-Tree}
+# Are lineage 4 samples low coverage?
+ pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
+  filter(sub_lineage1 == 'lineage4.8') %>%
+  relocate(MEDIAN_COVERAGE)
+
+# Select samples
+plot_df <- pgy_df %>% filter(include == 1 & mixed == 'Single')
+
+tree_file = '/labs/jandr/walter/tb/pgy/msa/iqtree/pgy.treefile'
+
+# Read tree file
+t = read.tree(tree_file) 
+is.rooted(t)
+
+# Strange pattern where '1' is added to end of sample name.
+new_tip_labels <- str_remove(t$tip.label, "1$")
+t$tip.label <- new_tip_labels
+
+# Drop mixed samples
+t_single <- drop.tip(t, mixed_samps)
+
+# Root on reference on sub_lineage 4.8 (3 samples)
+lin_4.8 <- plot_df %>% filter(include == TRUE & sub_lineage == 'lineage4.8') %>% pull(seq_name)
+lin_4 <- plot_df %>% filter(include == TRUE & sub_lineage == 'lineage4') %>% pull(seq_name)
+t_rooted <- ape::root(t_single, outgroup = lin_4.8, resolve.root = TRUE)
+is.rooted(t_rooted)
+
+# Test plot
+ggtree(t_rooted, layout = 'fan') + 
+  geom_tiplab()
+
+# Add OTU group to data.
+plot_df$sub_lineage_plot <- str_remove(plot_df$sub_lineage,'lineage')
+t2 = groupOTU(t_rooted,split(plot_df$seq_name, plot_df$sub_lineage_plot), group_name = 'Lineage')
+
+# Color palette for lineage
+sub_lineages <- pgy_df %>% filter(mixed != 'Mixed' & include == TRUE) %>% pull(sub_lineage) %>% unique() %>% sort()
+sub_lineages <- str_remove(sub_lineages,'lineage')
+lineage_pal <- glasbey(length(sub_lineages))
+show_col(lineage_pal)
+names(lineage_pal) <- unique(sub_lineages)
+
+# Plot tree coloring by lineage. (unadorned by heatmaps)
+p0 <- ggtree(t2, layout="circular", open.angle=10, size=0.5, aes(color=Lineage)) +
+  scale_color_manual(values = lineage_pal, name = 'Sub-lineage') + 
+  geom_treescale(x = -7e-5,fontsize=2, linesize=1, width = 5e-5)
+p0
+# Adjust legend margins: move closer to the tree with legend.box.margin (b,l,t,r)
+p0 <- p0 + theme(legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-30,-30,-0,-30), 
+        legend.position = 'bottom') 
+p0
+
+# Add information on prison status and city. 
+plot_df <- pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
+  group_by(seq_name) %>%
+  arrange(-n, link_name, -MEDIAN_COVERAGE) %>%
+  slice(1) %>% ungroup() %>%
+  # Group prisons with <=6 people
+  mutate(prison_name = case_when(prison_name %in% c('Coronel Oviedo','Encarnación','Misiones','Pedro Juan Cabralleo') ~ 'Other',
+                                 TRUE ~ prison_name), 
+         prison_name = factor(prison_name, levels = c('Concepción','Penal CDE','Penal Esperanza','Tacumbú', 'Other'), ordered = TRUE),
+         amr_status = case_when(isoniazid == 'ahpC_c.-74G>A' & ahpC_fraction > .9 ~ 'ahpC (-74G>A)',
+                                DR_type == 'MDR' ~ 'MDR',
+                                isoniazid %in% c('fabG1_c.-15C>T','fabG1_c.-15C>T','fabG1_c.-17G>T, katG_p.Ser315Thr', 'katG_p.Ala106Val', 'katG_p.Ser315Thr') ~ 'Other isoniazid',
+                                rifampicin != '-' ~ 'Rifampicin',
+                                DR_type == 'Drug-resistant' & isoniazid == '-' & rifampicin == '-' ~ 'Other resistance',
+                                DR_type == 'Sensitive' ~ 'Sensitive'))
+table(plot_df$amr_status, useNA = 'always')
+
+# Plot AMR status
+amr_data <- plot_df %>% select(seq_name, amr_status) %>% column_to_rownames(var = 'seq_name')
+
+# Add AMR status
+p1 <- p0 + new_scale_fill()
+p1 <- gheatmap(p1, data= amr_data, offset= 0, width = .1, color = FALSE, colnames = FALSE) +
+  scale_fill_viridis_d(option = 'B', name="Antimicrobial resistance",na.translate = FALSE)
+p1
+
+# Plotting df containing only the data to be plotted with rownames that match tree tip names.
+location_ring_data <- plot_df %>% select(seq_name, location) %>% column_to_rownames(var = 'seq_name')
+# Add location to ring
+p2 <- p1 + new_scale_fill()
+p2 <- gheatmap(p2, data = location_ring_data, offset= 2.5e-3, width = .1, color = FALSE, colnames = FALSE) +
+  scale_fill_brewer(name="City", palette = 'BrBG')
+p2
+
+# Plotting df containing only the data to be plotted with rownames that match tree tip names.
+inc_ring_data <- plot_df %>% select(seq_name, inc_status) %>% column_to_rownames(var = 'seq_name')
+# Add incarceration status to ring
+p3 <- p2 + new_scale_fill()
+p3 <- gheatmap(p3, data= inc_ring_data, offset= 5e-3, width = .1, color = FALSE, colnames = FALSE) +
+  scale_fill_lancet(name="Incarceration status")
+p3
+
+# Plotting df containing only the data to be plotted with rownames that match tree tip names.
+# prison_data <- plot_df %>% select(seq_name, prison_name) %>% column_to_rownames(var = 'seq_name')
+# # Add incarceration status to ring
+# p3 <- p2 + new_scale_fill()
+# p3 <- gheatmap(p3, data= prison_data, offset= 8e-05, width = .1, color = FALSE, colnames = FALSE) +
+#   scale_fill_viridis_d(option = 'B', name="Prison",na.translate = FALSE)
+# p3
+
+# Get the legends for each section, then plot together
+p1x <- p0 + theme(legend.position="none")
+p1x <- p1 <- gheatmap(p1, data= amr_data, offset= 0, width = .1, color = FALSE, colnames = FALSE) +
+  scale_fill_viridis_d(option = 'B', name="Antimicrobial resistance",na.translate = FALSE) + 
+  guides(color = 'none')
+
+p2x <- p0 + theme(legend.position="none")
+p2x <- gheatmap(p2x, data = location_ring_data, offset= 2.5e-3, width = .1, color = FALSE, colnames = FALSE) +
+  scale_fill_brewer(name="City", palette = 'BrBG') +
+  guides(color = 'none')
+p2x
+
+p3x <- p0 + theme(legend.position="none")
+p3x <- gheatmap(p3x, data= inc_ring_data, offset= 5e-3, width = .1, color = FALSE, colnames = FALSE) +
+  scale_fill_lancet(name="Incarceration status") +
+  guides(color = 'none') 
+p3x
+
+# Get legends
+require(cowplot)
+leg0 <- get_legend(p0) 
+leg1 <- get_legend(p1x) 
+leg2 <- get_legend(p2x)
+leg3 <- get_legend(p3x)
+
+# Remove fill legend, keep color
+pp <- p3 + theme(legend.position = 'none') 
+
+# Plot all together
+tree <- plot_grid(pp,leg0, ncol = 1, rel_heights = c(1.5, .1))
+tree
+legends <- plot_grid(leg1,leg2,leg3, ncol = 1, align = 'hv')
+legends 
+p_full <- plot_grid(tree, legends, ncol=2, rel_widths=c(1, .18))
+
+ggsave(p_full, filename = paste(plot_dir, 'pgy_iqtree.pdf', sep = ''), height = 8, width = 9)
+
+```
+```{r bactdater}
+library(BactDating)
+t3 <- drop.tip(t2, lin_4.8)
+
+# Dates
+dates <- pgy_df %>% filter(seq_name %in% t3$tip.label) %>% select(seq_name,datedx) %>% deframe()
+# Sort in order of tip labels
+dates = dates[t3$tip.label] 
+dates=decimal_date(ymd(dates))
+
+# Tree in branches scaled to # of substitutions
+L = 13670 # length of SNP alignment
+t3$edge.length=t3$edge.length*L
+
+# Plot
+plot(t3, show.tip.label = F)
+axisPhylo(backward = F)
+
+# Root-to-tip, full tree
+res=roottotip(t3,dates)
+
+### Try for lineage/cluster. ###
+cluster = 2
+tips = df_clust %>% filter(cluster == 4) %>% pull(sample)
+tips
+
+# Get node MRCA of tips of interest
+mrca_node = tidytree::MRCA(t2, tips)
+mrca_node
+tre <- tree_subset(t2, node = mrca_node, levels_back = 0)
+ggtree(tre)
+
+dates <- pgy_df %>% filter(seq_name %in% tre$tip.label) %>% select(seq_name,datedx) %>% deframe()
+# Sort in order of tip labels
+dates = dates[tre$tip.label] 
+dates=decimal_date(ymd(dates))
+
+# Tree in branches scaled to # of substitutions
+L = 13670 # length of SNP alignment
+tre$edge.length=tre$edge.length*L
+
+# Plot
+plot(tre, show.tip.label = F)
+axisPhylo(backward = F)
+
+# Root-to-tip, full tree
+res=roottotip(tre,dates)
+
+
+```
+```{r terminal branch lengths}
+t
+tips = t$tip.label
+
+## first get the node numbers of the tips
+nodes<-sapply(tips,function(x,y) which(y==x),y=t$tip.label)
+nodes
+## then get the edge lengths for those nodes
+edge.lengths<-setNames(t$edge.length[sapply(nodes,
+    function(x,y) which(y==x),y=t$edge[,2])],names(nodes))
+edge.lengths<-enframe(edge.lengths,name = 'seq_name',value = 'edge_length')
+
+# Plot edge length as a function of incarceration status
+pgy_df <- pgy_df %>% left_join(edge.lengths,by = 'seq_name')
+
+# Plot edge length as a function of incarceration status
+tlen.plot <- pgy_df %>%
+  filter(include == 1) %>%
+  ggplot(aes(x = inc_status, y = edge_length, fill = inc_status)) + 
+  geom_boxplot() +
+  theme_classic() + ylim(0,.001) + ylab('Terminal branch length') + 
+  xlab('Incarceration status at TB notification') +
+  scale_fill_lancet(name="Incarceration status") + 
+  theme(axis.text.x=element_blank())
+tlen.plot
+ggsave(tlen.plot, filename = paste(plot_dir, 'terminal_blen_plot.pdf', sep = ''))
+
+# Summarize statistics for reporting
+pgy_df %>% filter(include == 1) %>%
+  group_by(inc_status) %>%
+  dplyr::summarize(median(edge_length),
+            quantile(edge_length, .25), 
+            quantile(edge_length, .75)) 
+
+# t-test compare incarcerated group to the formerly incarcerated
+pgy_df %>% filter(include == 1) %>%
+  filter(inc_status %in% c('Incarcerated','Formerly incarcerated')) %>%
+  t_test(formula = edge_length ~ inc_status,
+      order = c('Incarcerated','Formerly incarcerated'),
+      alternative = "less") %>%
+  mutate(across(where(is.numeric), round, 2))
+
+# t-test compare incarcerated group to community
+pgy_df %>% filter(include == 1) %>%
+  filter(inc_status %in% c('Incarcerated','Community')) %>%
+  t_test(formula = edge_length ~ inc_status,
+      order = c('Incarcerated','Community'),
+      alternative = "less") %>%
+  mutate(across(where(is.numeric), round, 2))
+
+```
+```{r ASR}
+library(phytools)
+library(ggimage)
+library(diversitree)
+sublineages_to_plot <- c('lineage4.1.2.1','lineage4.4.1.1', 'lineage4.3.3')
+
+# Loop over sublineages to print
+for (sublineage in sublineages_to_plot){
+  
+  print(sublineage)
+  
+# Extract a single sublineage from for loop
+tips = c(pgy_df %>% filter(sub_lineage1 == sublineage & seq_name %in% t2$tip.label) %>% pull(seq_name))
+tips
+
+# # Explore tree to find nodes to subset upon
+# ggtree(t2, size=0.5, aes(color=Lineage)) +
+#   scale_color_manual(values = lineage_pal, name = 'Sub-lineage') + 
+#   geom_text(aes(label=node), hjust=-.4,vjust = .3)
+
+# Get node MRCA of tips of interest
+mrca_node = tidytree::MRCA(t2, tips)
+mrca_node
+r1 <- tree_subset(t2, node = mrca_node, levels_back = 0)
+g1 <- ggtree(r1)
+g1
+
+# Add City. 
+locs <- plot_df %>% select(seq_name, location) %>% filter(seq_name %in% r1$tip.label) %>% deframe() 
+locs <- locs[r1$tip.label]
+
+# Drop tips from outside 2 cities of interest.
+r1 <- ape::drop.tip(r1, tip = names(which(locs == 'Other city')))
+locs <- locs[r1$tip.label]
+
+# Add resistance to tree
+gheatmap(g1, data = as.data.frame(locs)) + 
+  geom_tiplab()
+
+# Which tips aren't in lineage?
+which(!r1$tip.label %in% tips)
+
+# Check correct order
+names(locs) == r1$tip.label
+
+# Estimate ancestral states under different model
+# Tree needs to be rooted and fully dichotomous
+fitER <- ace(locs, r1, model = 'ER', type = 'discrete')
+fitARD <- ace(locs, r1, model = 'ARD', type = 'discrete')
+
+# Anova test:no evidence to support different rates. 
+print(anova(fitER,fitARD))
+
+# Look at ARD model
+print(fitARD$rates)
+
+# Plot ASR tree
+ancstats <- as.data.frame(fitARD$lik.anc)
+ancstats$node <- 1:r1$Nnode+Ntip(r1)
+
+# Location colors to be consistent with IQ-tree
+show_col(magma(n = 3))
+cols <- magma(n = 3)
+names(cols) <- sort(unique(plot_df$location))
+
+# Plot tree
+pdf(file = paste(plot_dir, sublineage, '_asr.pdf', sep = ''))
+plot(r1, show.tip.label = FALSE)
+nodelabels(node=1:r1$Nnode+Ntip(r1),
+    pie=fitARD$lik.anc, piecol=cols,cex=0.5)
+pie=to.matrix(locs,sort(unique(locs)))[r1$tip.label,]
+tiplabels(pie=pie,piecol=cols,cex=0.3)
+ymax=par()$usr[4]
+title(str_replace(sublineage,'lineage','Lineage '))
+ # Add legend only for a single plot
+if(sublineage == sublineages_to_plot[1]){
+  add.simmap.legend(colors=cols[1:2],prompt=FALSE,x=0.1*par()$usr[2],y=0.1*ymax,fsize=1)
+}
+dev.off()
+
+# Migration rates - test for 2-state Markov model. 
+states <- locs %>% str_replace_all(c("Asunción" = '1', "Ciudad del Este" = '0', 'Other city' = '0')) %>% as.numeric()
+names(states) = names(locs)
+#lik.mk2 <- make.mk2(force.ultrametric(r1), states,strict = FALSE) # When lineage 4.4.1.1 is forced ultrametric, there is a negative branch length.
+#fit.mk2 <- find.mle(lik.mk2, c(.1, .1), method="subplex")
+
+# Test if symmetric fit is better - rates are the same. 
+#lik.mk1 <- constrain(lik.mk2, q10 ~ q01)
+#fit.mk1 <- find.mle(lik.mk1, .1, method="subplex")
+#print(anova(fit.mk2, mk1=fit.mk1))
+
+}
+
+
+# Come back to plot with ggplot (still having issues with ggimage - requires magick.)
+#pies <- nodepie(ancstats, cols = 1:2)
+#pies <- lapply(pies, function(g) g+scale_fill_manual(values = cols))
+
+#### Stochastic character mapping ####
+# To estimate the average number of changes in city along tree, sample character histories from their posterior probability distribution
+
+mtrees<-make.simmap(r1,locs,model="ARD",nsim=100)
+summary(mtrees)
+```
+
+```{r mixed samples investigation}
+# Plot pairwise distances versus patristic distances between samples as in the Moldova paper.
+
+# Get patristic distances
+patristic_dist = cophenetic.phylo(t)
+
+# Order to same order as the SNP distances matrix
+
+patristic_dist = melt_dist(patristic_dist, order = dimnames(d)[[1]]) %>%
+  rename(patristic_dist = dist)
+patristic_dist
+
+# Combine with pairwise distances
+combined_dists = patristic_dist %>% left_join(d_long, by = c('iso1'='iso1','iso2'='iso2'))
+
+# Plot all. 
+combined_dists %>%
+  ggplot(aes(x = patristic_dist, y = dist)) + 
+  geom_point() + 
+  coord_cartesian(xlim = c(0,0.00005),ylim = c(0,50)) +
+  theme_classic()
+
+# Drop mixed samples from tree tips and plot
+combined_dists %>%
+  filter(mixed_comp == 'Neither mixed') %>%
+  ggplot(aes(x = patristic_dist, y = dist)) + 
+  geom_point() + 
+  coord_cartesian(xlim = c(0,0.00005),ylim = c(0,50)) +
+  theme_classic()
+
+```
+```{r cluster isolates}
+# Define df to store SNP clusters.
+df_clust <- data.frame(sample = labels(d)[[1]], cluster = NA)
+df_clust$sample <- as.character(df_clust$sample)
+cutoff = 12
+
+# Loop over samples and assign cluster.
+for (ss in 1:length(labels(d)[[1]])) {
+  #print(ss)
+  print(labels(d)[[1]][ss])
+  # Get query.
+  query = labels(d)[[1]][ss]
+  
+  # For sample, get all samples within cutoff distance of sample in question. 
+  samps <- names(which(d[query,] <= cutoff, arr.ind = T))
+  
+  # If length of samps is greater than 0
+  if (length(samps > 0)) {
+    
+    # Check if any are in a cluster.   
+    clusters <- unique(na.omit(df_clust[which(df_clust$sample %in% samps), 'cluster']))
+    
+    if (length(clusters) > 0 ){
+      # If any are in a cluster, assign query sample to cluster. 
+      new_cluster <- clusters[1]
+      df_clust[which(df_clust$sample == query ), 'cluster'] <- new_cluster
+      # If any are in a cluster, assign all samples within cutoff to cluster. 
+      df_clust[which(df_clust$sample %in% samps), 'cluster'] <- new_cluster
+      
+    } else {
+      # If none are in cluster, create a new cluster. 
+      new_cluster <- ifelse(all(is.na(c(df_clust$cluster))), 1, max(df_clust$cluster, na.rm=T) + 1) 
+      
+      df_clust[which(df_clust$sample == query ), 'cluster'] <- new_cluster
+      # If any are in a cluster, assign all samples within cutoff to cluster. 
+      df_clust[which(df_clust$sample %in% samps), 'cluster'] <- new_cluster
+    }
+  } else {
+    # If not a member of a cluster.
+    new_cluster <- ifelse(all(is.na(c(df_clust$cluster))), 1, max(df_clust$cluster, na.rm=T) + 1) 
+    df_clust[which(df_clust$sample == query ), 'cluster'] <- new_cluster
+    
+  }
+}
+
+# Rename df_clust df_clust12
+df_clust12 <- df_clust %>% rename(cluster12 = cluster)
+
+# Loop over samples and assign cluster for 6-SNP cluster. 
+df_clust <- data.frame(sample = labels(d)[[1]], cluster = NA)
+df_clust$sample <- as.character(df_clust$sample)
+cutoff = 6
+
+# Loop over samples and assign cluster.
+for (ss in 1:length(labels(d)[[1]])) {
+  #print(ss)
+  print(labels(d)[[1]][ss])
+  # Get query.
+  query = labels(d)[[1]][ss]
+  
+  # For sample, get all samples within cutoff distance of sample in question. 
+  samps <- names(which(d[query,] <= cutoff, arr.ind = T))
+  
+  # If length of samps is greater than 0
+  if (length(samps > 0)) {
+    
+    # Check if any are in a cluster.   
+    clusters <- unique(na.omit(df_clust[which(df_clust$sample %in% samps), 'cluster']))
+    
+    if (length(clusters) > 0 ){
+      # If any are in a cluster, assign query sample to cluster. 
+      new_cluster <- clusters[1]
+      df_clust[which(df_clust$sample == query ), 'cluster'] <- new_cluster
+      # If any are in a cluster, assign all samples within cutoff to cluster. 
+      df_clust[which(df_clust$sample %in% samps), 'cluster'] <- new_cluster
+      
+    } else {
+      # If none are in cluster, create a new cluster. 
+      new_cluster <- ifelse(all(is.na(c(df_clust$cluster))), 1, max(df_clust$cluster, na.rm=T) + 1) 
+      
+      df_clust[which(df_clust$sample == query ), 'cluster'] <- new_cluster
+      # If any are in a cluster, assign all samples within cutoff to cluster. 
+      df_clust[which(df_clust$sample %in% samps), 'cluster'] <- new_cluster
+    }
+  } else {
+    # If not a member of a cluster.
+    new_cluster <- ifelse(all(is.na(c(df_clust$cluster))), 1, max(df_clust$cluster, na.rm=T) + 1) 
+    df_clust[which(df_clust$sample == query ), 'cluster'] <- new_cluster
+    
+  }
+}
+
+# Rename df_clust df_clust6
+df_clust6 <- df_clust %>% rename(cluster6 = cluster)
+
+# Combine cluster dataframes. 
+df_clusters <- df_clust12 %>% left_join(df_clust6)
+
+```
+
+```{r haplotype network}
+
+sort(table(df_clusters$cluster12))
+# Select clusters to plot
+clusters_to_plot <- df_clusters %>% group_by(cluster12) %>%
+  dplyr::summarize(n = n()) %>%
+  filter(n > 10) %>% pull(cluster12)
+clusters_to_plot
+
+# Loop over largest clusters
+for(clust in c(clusters_to_plot)){
+  print(clust)
+  clust_samples = df_clusters %>% filter(cluster12 == clust) %>% pull(sample)
+  length(clust_samples)
+  # Subset MSA to samples in town or reference
+  msa <- f[which(rownames(f) %in% clust_samples),]
+  msa
+  # Label with incarceration status
+  inc_status <- clust_samples %>% as_tibble() %>% left_join(plot_df, by = c('value' = 'seq_name')) %>% pull(inc_status)
+clust_samples %>% as_tibble() %>% left_join(plot_df, by = c('value' = 'seq_name')) %>% group_by(seq_name) %>% filter(n()>1)
+  attr(msa, 'name') <- inc_status
+  
+  # Get haplotypes - treat gaps as N.
+  h <- haplotype(msa,  trailingGapsAsN = FALSE, strict = FALSE)
+  #h <- sort(h, what = "label")
+  #d <- dist.dna(h, "N", pairwise.deletion = TRUE)
+  nt <- haploNet(h)
+  nt
+  # Look at indices of a specific haplotype
+  #labels(msa[attr(h,'index')[[1]],])
+   
+  #nt <- haploNet(h)
+  # Remove alternative links from net
+  attr(nt,"alter.links") <- NULL
+  
+  # Get sizes
+  sz=summary(h)
+  sz
+  # Get net labels - these are in different order than haplotype labels
+  nt.labs <- attr(nt, "labels")
+  sz=sz[nt.labs]
+
+  # Get pie info- error here.stuck. 
+  P <- haploFreq(msa, inc_status, haplo = h)
+  P <- P[nt.labs,]
+
+  # Color palette
+  pal = pal_lancet(alpha = 0.7)(length(unique(inc_status)))
+  names(pal) = c('Community','Formerly incarcerated','Incarcerated')
+  #show_col(pal)
+  
+  # Make all plots a consistent size, so that nodes are consistently sized.
+  xl <- c(-7, 7)
+  yl <- c(-15, 20)
+  pdf(file = paste(plot_dir, 'cluster', clust, 'network.pdf', sep = ''))
+  plot(nt, xlim = xl, ylim = yl,size = sz*1.2,legend = FALSE, pie = P, show.mutation = 2, labels = FALSE,  bty = 'L', xpd = TRUE,
+       bg = pal[dimnames(P)[[2]]], cex = 1, bty = 'L', scale.ratio= .4)
+  title(paste('Cluster', clust))
+  
+# Add legend
+if(clust == 1){
+ legend(x=5,y = 10, inset=c(0,0),names(pal), col= pal, pch=20, bty = 'n')
+ # legend(x=10,y = -0,  inset=c(0,0), col = 'grey', c('  1','  5'), cex = 1, pt.cex = c(log(1+1)*5, log(5+1)*5), 
+ #      pch = 20, bty = 'n', y.intersp=1.6)
+}
+  dev.off()
+}
+
+```
+
+```{r describe clusters}
+# Describe % clustered isolates
+df_clusters %>% group_by(cluster12) %>%
+  mutate(cluster_size = n()) %>% ungroup() %>%
+  dplyr::summarize(clustered = length(which(cluster_size > 1)),
+            unique = length(which(cluster_size == 1)),
+            n(),
+            prop_clustered = clustered/n())
+
+# Num. of clusters and cluster size
+df_clusters %>% group_by(cluster12) %>%
+  mutate(cluster_size = n()) %>% filter(!cluster_size == 1) %>%
+  ungroup() %>%
+  dplyr::summarize(length(unique(cluster12)),
+                   min(cluster_size),
+                   max(cluster_size))
+
+# Proportion clustered by incarceration status
+df_clusters %>% group_by(cluster12) %>%
+  mutate(cluster_size = n()) %>% ungroup() %>%
+  mutate(clustered = case_when(cluster_size == 1 ~ 'Unclustered', TRUE ~ 'Clustered')) %>%
+  left_join(plot_df, by = c('sample' = 'seq_name')) %>%
+  group_by(inc_status) %>%
+  dplyr::summarize(n = n(), 
+            cl=length(which(clustered=='Clustered')),
+            cl/n)
+
+# Chi-square test: cluster status by incarceration. Inc vs. formerly inc.
+df_clusters %>% group_by(cluster12) %>%
+  mutate(cluster_size = n()) %>% ungroup() %>%
+  mutate(clustered = case_when(cluster_size == 1 ~ 'Unclustered', TRUE ~ 'Clustered')) %>%
+  left_join(plot_df, by = c('sample' = 'seq_name')) %>%
+  filter(inc_status != 'Community') %>%
+  chisq_test(clustered ~ inc_status)
+
+# Chi-square test: cluster status by incarceration. Inc vs. formerly inc.
+df_clusters %>% group_by(cluster12) %>%
+  mutate(cluster_size = n()) %>% ungroup() %>%
+  mutate(clustered = case_when(cluster_size == 1 ~ 'Unclustered', TRUE ~ 'Clustered')) %>%
+  left_join(plot_df, by = c('sample' = 'seq_name')) %>%
+  filter(inc_status != 'Formerly incarcerated') %>%
+  chisq_test(clustered ~ inc_status)
+
+# Percent of community clusters with recent incarceration
+df_clusters %>% group_by(cluster12) %>%
+  mutate(cluster_size = n()) %>% 
+  mutate(clustered = case_when(cluster_size == 1 ~ 'Unclustered', TRUE ~ 'Clustered')) %>%
+  filter(cluster_size >1) %>%
+  left_join(plot_df, by = c('sample' = 'seq_name')) %>%
+  # Includes incarcerated/formerly incarcerated individual
+  dplyr::summarize(inc_history_in_cluster = case_when(any(inc_status %in% c('Incarcerated','Formerly incarcerated')) ~ 1, TRUE ~ 0), 
+                   community_in_cluster = case_when(any(inc_status %in% c('Community')) ~ 1, TRUE ~ 0)) %>%
+  filter(community_in_cluster == 1) %>%
+  dplyr::summarize(history = sum(inc_history_in_cluster),
+            n(),
+            prop_history = history/n())
+
+# Percent of community members in clusters with ppl with recent incarceration
+df_clusters %>% group_by(cluster12) %>%
+  mutate(cluster_size = n()) %>% 
+  mutate(clustered = case_when(cluster_size == 1 ~ 'Unclustered', TRUE ~ 'Clustered')) %>%
+  filter(cluster_size >1 ) %>%
+  left_join(plot_df, by = c('sample' = 'seq_name')) %>%
+  # Includes incarcerated/formerly incarcerated individual
+  dplyr::mutate(inc_history_in_cluster = case_when(any(inc_status %in% c('Incarcerated','Formerly incarcerated')) ~ 1, TRUE ~ 0)) %>%
+  ungroup() %>% filter(inc_status == 'Community') %>%
+  dplyr::summarize(history = sum(inc_history_in_cluster),
+            n(),
+            prop_history = history/n())
+```
+
+```{r BEAST XML files}
+### Function to write XML file with given parameters from an input fasta file.
+write_xml <- function(input_fa, dates_filename, mean_sub_rate, sd_sub_rate, fixed_clock_rate = NA, pop_model = 'constant', clock_rate = 'priors') {
+
+  # Define id for BEAST.
+  id <- str_replace(basename(input_fa), pattern = '.fa', replacement = '')
+  id
+  
+  # Dates filename
+  dates_filename <- str_replace(input_fa, pattern = '_snps.fa|.fa', replacement = '_dates.csv')
+  
+  # The file created by beautier, a BEAST2 input file
+  output_filename <- paste(xml_dir, basename(str_remove(input_fa,'.fa')),'_',pop_model,'_',clock_rate, '.xml', sep = '')
+  output_filename
+  
+  # Define input model- constant pop
+  if(pop_model == 'constant' & clock_rate == 'priors'){
+    input_model = create_inference_model(
+    site_model = create_hky_site_model(freq_equilibrium = 'empirical'),
+    clock_model = create_strict_clock_model(clock_rate_distr = create_log_normal_distr(m = mean_sub_rate, s = sd_sub_rate)),
+    tree_prior = create_ccp_tree_prior(),
+    mcmc = create_mcmc(chain_length = 1e8, store_every = 1000),
+    tipdates_filename = dates_filename)
+  } else if(pop_model == 'constant' & clock_rate == 'fixed'){
+    input_model = create_inference_model(
+    site_model = create_hky_site_model(freq_equilibrium = 'empirical'),
+    clock_model = create_strict_clock_model(clock_rate_param = fixed_clock_rate),
+    tree_prior = create_ccp_tree_prior(),
+    mcmc = create_mcmc(chain_length = 1e8, store_every = 1000),
+    tipdates_filename = dates_filename)
+  } else if(pop_model == 'skyline' & clock_rate == 'priors'){
+    input_model = create_inference_model(
+    site_model = create_hky_site_model(freq_equilibrium = 'empirical'),
+    clock_model = create_strict_clock_model(clock_rate_distr = create_log_normal_distr(m = mean_sub_rate, s = sd_sub_rate)),
+    tree_prior = create_cbs_tree_prior(), # group_sizes_dimension needs to equal pop_sizes dimension, but there is no argument for this, so leave at defaults (5)
+    mcmc = create_mcmc(chain_length = 1e8, store_every = 1000),
+    tipdates_filename = dates_filename)
+  }else if(pop_model == 'skyline' & clock_rate == 'fixed'){
+    input_model = create_inference_model(
+    site_model = create_hky_site_model(freq_equilibrium = 'empirical'),
+    clock_model = create_strict_clock_model(clock_rate_param = fixed_clock_rate),
+    tree_prior = create_cbs_tree_prior(), # group_sizes_dimension needs to equal pop_sizes dimension, but there is no argument for this, so leave at defaults (5)
+    mcmc = create_mcmc(chain_length = 1e8, store_every = 1000),
+    tipdates_filename = dates_filename)
+  }
+
+  # Use the default BEAUti settings to create a BEAST2 input file
+  create_beast2_input_file_from_model(
+    input_fa,
+    output_filename,
+    inference_model = input_model
+  )
+  ## Add correction for invariant sites. 
+  # Read in original XML file
+  xml_string <- read_file(output_filename)
+  
+  # Replace text for alignment ID first.
+  original <- id
+  replacement <- paste(id,'Original', sep = '')
+  xml_update1 <- sub(pattern = original, replacement = replacement, x = xml_string)
+  
+  # Count number of variant nucleotides in first sequence (approximates msa).
+  seq1 <-  seqinr::read.fasta(input_fa)
+  As_var = ifelse(is.na(table(seq1[1])['a']), 0, table(seq1[1])['a'])
+  Cs_var = ifelse(is.na(table(seq1[1])['c']), 0, table(seq1[1])['c'])
+  Gs_var = ifelse(is.na(table(seq1[1])['g']), 0, table(seq1[1])['g'])
+  Ts_var = ifelse(is.na(table(seq1[1])['t']), 0, table(seq1[1])['t'])
+  
+  # Reference nucleotide counts
+  As_ref = 758552
+  Cs_ref = 1449998
+  Gs_ref = 1444614
+  Ts_ref = 758368
+  
+  # Get invariant sites.
+  As = As_ref - As_var
+  Cs = Cs_ref - Cs_var
+  Gs = Gs_ref - Gs_var
+  Ts = Ts_ref - Ts_var
+  
+  # Add correction text.
+  correction_text <- paste("</data>\n<data id='",id,"' spec='FilteredAlignment' filter='-' data='@", id, "Original' constantSiteWeights='",As," ",Gs," ",Cs," ",Ts,"'/>", sep = '')
+  correction_text
+ 
+  # Write to updated XML file.
+  write_lines(xml_update2, path = str_replace(output_filename, pattern = '\\.xml','_snpcor.xml'))
+  
+}
+
+## Select clusters to plot
+clusters_to_plot <- df_clusters %>% group_by(cluster12) %>%
+  dplyr::summarize(n = n()) %>%
+  filter(n > 10) %>% pull(cluster12)
+clusters_to_plot
+
+## Loop over largest clusters and write a MSA of SNPs. 
+for(clust in c(clusters_to_plot)){
+  print(clust)
+  clust_samples = df_clusters %>% filter(cluster12 == clust ) %>% pull(sample)
+
+  msa <- f[which(rownames(f) %in% clust_samples),]
+  write.FASTA(msa, file = paste(msa_dir, 'cluster', clust,'.fa', sep = ''))
+}
+clusters_to_plot 
+
+# On SCG - get snps only for cluster MSAs. 
+
+## Loop over largest clusters and write a .csv file with sample names and dates, with no headers (formatted for BEAUTI input).
+for(clust in c(clusters_to_plot)){
+  print(clust)
+  clust_samples = df_clusters %>% filter(cluster12 == clust ) %>% pull(sample)
+  tmp = plot_df %>% filter(seq_name %in% clust_samples) %>% select(seq_name, datedx) %>% mutate(datedx = decimal_date(datedx))
+  
+  write_delim(tmp, file = paste(msa_dir, 'cluster', clust,'_dates.csv', sep = ''), delim = '\t', col_names = FALSE)
+}
+
+## Write XML files for other clusters- write XML for both constant and skyline plot.
+fasta_list = paste(msa_dir, 'cluster', clusters_to_plot,'.fa', sep = '')
+fasta_snps = paste(msa_dir, 'cluster', clusters_to_plot,'_snps.fa', sep = '')
+
+#for (input_fa in fasta_list) {
+for (input_fa in fasta_snps) {
+  print(input_fa)
+  write_xml(input_fa, mean_sub_rate = -16.5, sd_sub_rate = 0.17, pop_model = 'constant', clock_rate = 'priors')
+  write_xml(input_fa, mean_sub_rate = -16.5, sd_sub_rate = 0.17, pop_model = 'skyline', clock_rate = 'priors')
+  write_xml(input_fa, mean_sub_rate = -16.5, sd_sub_rate = 0.17, fixed_clock_rate = 1E-7, pop_model = 'constant', clock_rate = 'fixed')
+  write_xml(input_fa, mean_sub_rate = -16.5, sd_sub_rate = 0.17, fixed_clock_rate = 1E-7, pop_model = 'skyline', clock_rate = 'fixed')
+
+}
+
+# On SCG: update operators for fixed clock models to actually set as fixed clocks.
+
+#### Loop over largest sub_lineages. #### 
+sublineages_to_plot <- c('lineage4.4.1.1')
+
+for(sublineage in c(sublineages_to_plot)){
+  print(sublineage)
+  clust_samples = pgy_df %>% filter(sub_lineage1 == sublineage & include == 1 & mixed == 'Single') %>% pull(seq_name)
+  clust_samples
+  msa <- f[which(rownames(f) %in% clust_samples),]
+  write.FASTA(msa, file = paste(msa_dir, sublineage,'.fa', sep = ''))
+}
+
+## Loop over largest clusters and write a .csv file with sample names and dates, with no headers (formatted for BEAUTI input).
+for(sublineage in c(sublineages_to_plot)){
+  print(sublineage)
+  clust_samples = pgy_df %>% filter(sub_lineage1 == sublineage & include == 1 & mixed == 'Single') %>% pull(seq_name)
+  tmp = plot_df %>% filter(seq_name %in% clust_samples) %>% select(seq_name, datedx) %>% mutate(datedx = decimal_date(datedx))
+  tmp
+  write_delim(tmp, file = paste(msa_dir, sublineage,'_dates.csv', sep = ''), delim = '\t', col_names = FALSE)
+}
+
+# On SCG - get snps only for lineage MSA. 
+
+## Write XML files for sublineage 4.4.1.1 - write XML for both constant and skyline plot.
+#fasta_list = paste(msa_dir, sublineages_to_plot,'.fa', sep = '')
+fasta_snps = paste(msa_dir, sublineages_to_plot,'_snps.fa', sep = '')
+fasta_snps
+
+for (input_fa in fasta_snps) {
+  print(input_fa)
+  write_xml(input_fa, mean_sub_rate = -16.5, sd_sub_rate = 0.17, pop_model = 'constant', clock_rate = 'priors')
+  write_xml(input_fa, mean_sub_rate = -16.5, sd_sub_rate = 0.17, pop_model = 'skyline', clock_rate = 'priors')
+  write_xml(input_fa, mean_sub_rate = -16.5, sd_sub_rate = 0.17, fixed_clock_rate = 1E-7, pop_model = 'constant', clock_rate = 'fixed')
+  write_xml(input_fa, mean_sub_rate = -16.5, sd_sub_rate = 0.17, fixed_clock_rate = 1E-7, pop_model = 'skyline', clock_rate = 'fixed')
+
+}
+
+
+```
+```{r plot beast}
+cluster = 1
+mcc_path <- paste(xml_dir,'cluster1_median_mcc.txt', sep = '')
+
+# mrsd
+mrsd = plot_df %>% filter(seq_name %in% clust_samples) %>% select(seq_name, datedx) %>% pull(datedx) %>% max()
+mrsd
+
+# Read in tree file.
+b <- treeio::read.beast(mcc_path)
+
+# plot beast tree
+b1 <- ggtree(b, mrsd = mrsd)  +
+  geom_range(range='height_0.95_HPD', color='grey', alpha=.6, size=2) + #  branch.length="height") +
+  theme_tree2() +
+  geom_nodelab(aes(x=branch, label=round(posterior, 2), subset=as.numeric(posterior)> 0.5), vjust=-.5, size=3) +
+  theme(axis.text=element_text(size=12))
+b1
+
+# Add antibiotic resistance to tree. 
+
+# Attach data
+b2 <- b1 %<+% 
+  df + 
+  # Add node labels
+  geom_text2(aes(subset=!isTip, label=node), hjust=-.3) 
+  geom_tippoint(aes(color = amr_status, shape = named_status), cex = 3) + 
+  # Add better color for resistance
+  scale_color_manual(values = col_pal_amr[c(2,3)], name = 'Resistance') + 
+  scale_shape_discrete(name = 'Incarceration status') 
+b2
+# Why are the 95% CIs extending past tipdates? 
+
+# Extract age of the MCC tree (node 17) and the MDR clade (node 21)
+b %>%
+  as_tibble() %>%
+  filter(node%in% c(15, 19)) %>%
+  select(node, height, height_0.95_HPD) %>%
+  group_by(node) %>%
+ mutate(height_low = unlist(height_0.95_HPD)[1],
+         height_high = unlist(height_0.95_HPD)[2]) %>%
+  # Subtract from mrsd to get actual time
+  mutate(height = decimal_date(mrsd) - height,
+       height_low = decimal_date(mrsd)- height_low,
+       height_high = decimal_date(mrsd) - height_high)
+
+# Save tree
+ggsave(b2, filename = paste(plot_dir, 'fronteiras_beast_082020.pdf', sep = ''), height = 8, width = 8)
+
+# MDR cluster. 
+df %>%
+  filter(cluster_update == 13) %>%
+  select(amr_status_full,named_status) %>%
+  filter(amr_status_full == 'MDR')
+```
+
+```{r plot beast Coalescent skyline,  fig.width = 6, fig.height = 3}
+
+# Get most recent sample date for each of the major clusters
+df_clusters %>% left_join(pgy_df, by = c('sample' = 'seq_name')) %>% filter(cluster12 == 2 & include == 1 & mixed == 'Single') %>% dim() #pull(datedx) %>% max(na.rm = TRUE) # "2021-11-24 UTC"
+df_clusters %>% left_join(pgy_df, by = c('sample' = 'seq_name')) %>% filter(cluster12 == 4 & include == 1 & mixed == 'Single') %>% dim() #%>% pull(datedx) %>% max(na.rm = TRUE) # "2021-09-13 UTC"
+df_clusters %>% left_join(pgy_df, by = c('sample' = 'seq_name')) %>% filter(cluster12 == 5 & include == 1 & mixed == 'Single') %>% dim() # %>% pull(datedx) %>% max(na.rm = TRUE) # "2019-09-19 UTC"
+
+# Read in skyline plots. 
+skyline_files <- paste(xml_dir,'skyline_snps/fixedClock/cluster', clusters_to_plot[1:3], "_snps.csv",sep ='')
+names(skyline_files) <- paste('Cluster',clusters_to_plot[1:3], sep = '')
+
+# Read in depth files.
+sky_dat <- purrr::map_dfr(skyline_files, 
+  ~read_delim(.x,skip = 1), .id = 'file')
+sky_dat
+
+# Plot for each cluster.
+s1 <-sky_dat %>%
+  ggplot(aes(x = Time, y = Mean)) + 
+  geom_ribbon(aes(ymin=Lower, ymax=Upper), fill = "grey70") +
+  geom_line() + 
+  theme_classic() + 
+  scale_y_continuous(trans='log10') + ylab('Ne') +
+  facet_wrap(~file, scales = 'free') + 
+  theme(axis.text.x=element_text(size=8, angle = 90))
+s1
+ 
+# ggsave(s1, filename = paste(plot_dir, 'skyline_plots.pdf', sep = ''), width = 6, height = 3)
+
+# Describe population size changes for 3 largest clusters.
+sky_dat %>% 
+  group_by(file) %>%
+  drop_na(Mean) %>%
+  mutate(start_time = min(Time), end_time = max(Time)) %>%
+    # Test if CIs overlap in the minimum and maximum times of cluster circulation
+  dplyr::summarize(start_time[1], end_time[1],
+                   pop_size_end = Mean[which(Time == end_time)], 
+                   pop_size_start = Mean[which(Time == start_time)],
+                   pop_size_change = pop_size_end-pop_size_start,
+                   fold_change = pop_size_end/pop_size_start,
+            sig_increase = case_when(Lower[which(Time == end_time)] > Upper[which(Time == start_time)] ~ 1, 
+                                     TRUE ~ 0))
+
+# Summarize MRCA dates
+data.frame(cluster = c(2,4,5), mean=c(67, 83,31), median = c(67,82,31), low = c(59,72,24), high = c(77,94,39), mrsd = c(2021,2021,2019)) %>%
+  mutate(mean_yr = mrsd-mean, median_yr = mrsd-median,low_yr = mrsd-high,high_yr = mrsd-low)
+```
+```{r plot beast MCC trees}
+mcc_dir = '/labs/jandr/walter/tb/pgy/xml/skyline_snps/fixedClock/'
+tree_file = paste(mcc_dir,'cluster2_snps_median_mcc.txt', sep = '')
+
+# Read tree file
+b <- read.beast(tree_file) 
+pgy_df$label <- pgy_df$seq_name
+b <- dplyr::left_join(b, pgy_df[,c('label','inc_status','location')], by = c('label' ))
+b@data
+# Drop mixed samples - can't do with beast
+#b@phylo <- treeio::drop.tip(b@phylo, mixed_samps)
+
+# Plot beast tree
+ggtree(b, mrsd = "2021-11-24") %<+% plot_df + 
+  geom_tippoint(aes(color = inc_status)) +
+  scale_color_lancet(name="Incarceration status")
+
+  geom_range(range='length_0.95_HPD', color='grey', alpha=.6, size=2) +
+ + 
+  geom_nodelab(aes(x=branch, label=round(posterior, 2),
+    subset = !is.na(as.numeric(posterior)) & as.numeric(posterior) > .80), vjust=-.5, size=2) +
+    theme(legend.position=c(.1, .8)) + theme_tree2() +
+  scale_color_lancet(name="Incarceration status")
+```
+```{r plot ahpC MCC tree}
+#### Plot lineage 4.4.1.1 ####
+tree_file = '/labs/jandr/walter/tb/pgy/xml/single_samps/constant/lineage4.4.1.1_snps_median_mcc.txt'
+
+# Read tree file
+b <- read.beast(tree_file) 
+
+# Get mrsd
+mrsd <- pgy_df %>% filter(include == 1 & mixed == 'Single') %>% pull(datedx) %>% max()
+
+# Add data
+p <- ggtree(b, mrsd = "2021-11-24") %<+% plot_df 
+p
+
+# Add tip points
+p + geom_tippoint(aes(shape = inc_status, color = isoniazid)) + 
+    theme(legend.position = "right") + 
+    scale_size_continuous(range = c(3, 10))
+
+# Heatmap: rownames need to be tip labels.
+isn <- pgy_df %>% filter(include == 1 & mixed == 'Single') %>% 
+   mutate(isoniazid = replace(isoniazid, isoniazid == '-', 'Reference'), 
+          isoniazid = factor(isoniazid, levels = c('Reference','ahpC_c.-74G>A'))) %>% select(seq_name,ahpC_fraction) %>% mutate(ahpC_fraction = replace_na(ahpC_fraction, 0)) %>% column_to_rownames(var = 'seq_name')
+
+# Plot
+p <- p + theme_tree2() + # scale bar
+  scale_x_ggtree(breaks = seq(1500,2000, by = 100))  # rescale x-axis for BEAST 
+
+# Isn heatmap
+p1 <- gheatmap(p,isn,offset=1, width=0.07, font.size=3, 
+         hjust=0, colnames = FALSE) + 
+  scale_fill_viridis_c(name = 'ahpC mutation\nfrequency', direction = -1, option = 'B') + 
+  geom_range(range='height_0.95_HPD', color='grey', alpha=.6, size=2)
+p1
+leg1 <- get_legend(p1)
+
+# Add Rif resistance
+library(ggnewscale)
+p2 <- p1 + new_scale_fill() 
+rif_status <- pgy_df %>% filter(include == 1 & mixed == 'Single') %>% select(seq_name,rifampicin) %>% 
+  mutate(rifampicin = case_when(rifampicin == '-' ~ 'Susceptible',
+                                rifampicin == 'rpoB_p.His445Leu' ~ 'rpoB (His445Leu)')) %>%
+           column_to_rownames(var = 'seq_name')
+p3 <- gheatmap(p2,rif_status,offset=38, width=0.07, font.size=3, 
+        colnames_angle=-45, hjust=0, colnames = FALSE) + 
+  scale_fill_ucscgb(name = 'Rifampicin resistance')
+p3
+
+# Get legend
+tmp3 <- gheatmap(p,rif_status,offset=38, width=0.07, font.size=3, 
+        colnames_angle=-45, hjust=0, colnames = FALSE) + 
+  scale_fill_ucscgb(name = 'Rifampicin resistance')
+leg2 <- get_legend(tmp3)
+
+# Add inc. status
+p4 <- p3 + new_scale_fill() 
+inc_status <- pgy_df %>% filter(include == 1 & mixed == 'Single') %>% select(seq_name,inc_status) %>% column_to_rownames(var = 'seq_name')
+p5 <- gheatmap(p4,inc_status,offset=76, width=0.07, font.size=3, 
+        colnames_angle=-45, hjust=0, colnames = FALSE) + 
+  scale_fill_lancet(name = 'Incarceration status')
+p5
+
+# Get legend
+tmp3 <- gheatmap(p,inc_status,offset=76, width=0.07, font.size=3, 
+        colnames_angle=-45, hjust=0, colnames = FALSE) + 
+  scale_fill_lancet(name = 'Incarceration status')
+leg3 <- get_legend(tmp3)
+
+# Get full plot w/0 legend
+pp <- p5 + theme(legend.position="none")
+pp
+
+# Add legnds back to plot
+legends <- plot_grid(leg1,leg2,leg3, ncol = 1, align = 'hv')
+pp_leg <- plot_grid(pp,legends,ncol = 2, rel_widths = c(1, .3))
+pp_leg
+ggsave(pp_leg, filename = paste(plot_dir, 'lineage4.4.1.1_isoniazid.pdf'), height = 8, width = 8)
+
+# Describe samples
+plot_df %>% filter(sub_lineage1=='lineage4.4.1.1') %>%
+  pull(isoniazid) %>% table()
+
+# Percentage ahpC mutation
+plot_df %>% filter(sub_lineage1=='lineage4.4.1.1') %>%
+  pull(ahpC_fraction) %>% sort()
+
+# Get MRCA for "fixed" ahpC
+mutant_tips <- plot_df %>% filter(sub_lineage1=='lineage4.4.1.1' & isoniazid == 'ahpC_c.-74G>A' & ahpC_fraction > .9) %>% pull(seq_name)
+mrca_ahpC <- MRCA(b, mutant_tips)
+mrca_ahpC
+
+# Get date of node
+med_height <- b@data %>% filter(node == mrca_ahpC) %>% pull(height)
+mrsd - med_height
+ymd(mrsd) - years(round(med_height))
+
+range_height <- b@data %>% filter(node == mrca_ahpC) %>% pull(height_0.95_HPD)
+ymd(mrsd) - years(round(range_height[[1]][1]))
+ymd(mrsd) - years(round(range_height[[1]][2]))
+
+# What would it look like if I colored the tree with continuous-trait ASR? 
+```
+```{r BEAST XML files - BDskyline }
+setwd(xml_dir)
+# Loop over clusters and add ascertainment bias correction
+clusters_to_plot
+for (clust in clusters_to_plot) {
+  print(clust)
+  add_asc_correction_xml(xml_path = paste(xml_dir, 'skyline/BDskyline/','cluster',clust,'_BDskyline.xml', sep = ''), fasta_path = paste('/labs/jandr/walter/tb/pgy/msa/cluster',clust,'.fa', sep = ''))
+}
+
+# Loop over clusters with the updated priors and 10 dimensions
+for (clust in clusters_to_plot) {
+  print(clust)
+  add_asc_correction_xml(xml_path = paste(xml_dir, 'skyline/BDskyline_d10/','cluster',clust,'_BDskyline_d10.xml', sep = ''), fasta_path = paste('/labs/jandr/walter/tb/pgy/msa/cluster',clust,'.fa', sep = ''))
+}
+
+```
+```{r plot beast BD skyline}
+library(bdskytools)
+# Plot output from BD skyline. 
+# https://taming-the-beast.org/tutorials/Skyline-plots/
+
+# Read in skyline plots. 
+BDskyline_files <- paste(xml_dir,'skyline/BDskyline_d10/cluster', clusters_to_plot[1:3], ".log",sep ='')
+BDskyline_files
+#BDskyline_files = BDskyline_files[1]
+names(BDskyline_files) <- paste('Cluster',clusters_to_plot[1:3], sep = '')
+
+# Read in depth files.
+BDsky_dat <- purrr::map_dfr(BDskyline_files[1], 
+  ~readLogfile(.x,burnin = 0.1), .id = 'file')
+BDsky_dat
+
+# Extract HPDs of Reff and becoming uninfectious rate
+Re_sky <- getSkylineSubset(BDsky_dat[which(BDsky_dat$file == 'Cluster1'),], "reproductiveNumber")
+Re_hpd    <- getMatrixHPD(Re_sky)
+delta_hpd <- getHPD(BDsky_dat[which(BDsky_dat$file == 'Cluster1'),'becomeUninfectiousRate_BDSKY_Serial'])
+originHPD <- getHPD(BDsky_dat[which(BDsky_dat$file == 'Cluster1'),'origin_BDSKY_Serial'])
+originHPD
+
+# Plot raw HPD intervals of Reff
+plotSkyline(1:10, Re_hpd, type='step', ylab="R")
+
+# Smooth skyline on timegrid.
+timegrid <- seq(0,100,length.out=101)
+Re_gridded <- gridSkyline(Re_sky,BDsky_dat[which(BDsky_dat$file == 'Cluster1'),'origin_BDSKY_Serial'], timegrid)
+Re_gridded_hpd <- getMatrixHPD(Re_gridded)
+times <- 2019-timegrid
+plotSkyline(times, Re_gridded_hpd, type='smooth', xlab="Time", ylab="R")
+
+# Pretty plot of R eff
+mar=c(5,4,4,4)+0.1)
+plotSkylinePretty(times, Re_gridded_hpd, type='smooth', axispadding=0.0, 
+                  col=pal.dark(corange), fill=pal.dark(corange, 0.5), col.axis=pal.dark(corange), 
+                  xlab="Time", ylab=expression("R"[e]), side=2, yline=2.5, xline=2, xgrid=TRUE, 
+                  ygrid=TRUE, gridcol=pal.dark(cgray), ylims=c(.5,2), new=TRUE, add=TRUE)
+```
+
+```{r plot genotypes on map}
+library(sf)
+library(scatterpie)
+#library(rworldmap)
+
+# Table of lat long coordinates
+coords <- data.frame(location = c('Asunción','Ciudad del Este','Other city'),
+           long = c(-57.5759, -54.6637, -58),lat = c(-25.2637,-25.4987,-20))
+
+x_asun = -57.5759
+x_cde = -54.6637
+y_asun = -25.2637
+y_cde = -25.4987
+
+# Add sub-lineage scatterpies. 
+lineage_table <- plot_df %>% select(location,sub_lineage1) %>% table() %>% as_tibble() %>%
+  pivot_wider(names_from = sub_lineage1, values_from = n) %>%
+  left_join(coords, by = 'location') %>%
+  rowwise() %>%
+  mutate(radius = sum(across(starts_with('lineage'))), 
+         radius = radius*.002)
+lineage_table # Needs to be in wide form
+
+# Get map data
+pgy_map <- map_data(map = "world","Paraguay")
+lineage_pal2 <- lineage_pal
+names(lineage_pal2) <- paste('lineage',names(lineage_pal), sep = '')
+
+# Update so that only plotting most dominant lineages
+lineage_pal
+
+# Plot map with pies
+m1 <- ggplot(pgy_map, aes(long,lat, group=region)) + 
+  geom_polygon( fill = 'lightgrey') + 
+  theme_classic() + 
+  geom_scatterpie(aes(x=long,y=lat, r=radius), data = lineage_table %>% filter(location != 'Other city'), 
+                  cols = colnames(lineage_table)[str_starts(colnames(lineage_table),'lineage')], color = NA) + 
+   scale_fill_manual(name = 'Sub-lineage', values=lineage_pal2, labels = str_remove(names(lineage_pal2), 'lineage')) + 
+  xlab('Longitude') + ylab('Latitude')
+m1
+
+# Add arrows bewtween major lineages                   
+m1 + 
+  # '4.1.2.1'
+  geom_curve(aes(x = x_asun, y = y_asun -.5, xend = x_cde, yend = y_cde - .5), 
+  arrow = arrow(length = unit(0.03, "npc"), type = 'closed'), colour = lineage_pal['4.1.2.1'], 
+  size = 6424/1857, curvature = .9) +  
+  geom_curve(aes(xend = x_asun, yend = y_asun + .5, x = x_cde, y = y_cde + .5), 
+  arrow = arrow(length = unit(0.03, "npc"), type = 'closed'), colour = lineage_pal['4.1.2.1'], 
+  size = 1, curvature = .9) +
+  # '4.4.1.1'
+  geom_curve(aes(x = x_asun +.2, y = y_asun -.5, xend = x_cde-.2, yend = y_cde - .5), 
+  arrow = arrow(length = unit(0.03, "npc"), type = 'closed'), colour = lineage_pal['4.4.1.1'], 
+  size = 1) + 
+  geom_curve(aes(xend = x_asun +.2, yend = y_asun + .5, x = x_cde - .2, y = y_cde + .5), 
+  arrow = arrow(length = unit(0.03, "npc"), type = 'closed'), colour = lineage_pal['4.4.1.1'], 
+  size = 1669/1035) +
+   # '4.3.3'
+  geom_segment(aes(x = x_asun+.5, y = y_asun, xend = x_cde-.5, yend = y_cde),
+                  arrow = arrow(length=unit(0.03, "npc"), type = 'closed'), colour = lineage_pal['4.3.3'], size = 1.5) +
+  geom_segment(aes(xend = x_asun+.5, yend = y_asun, x = x_cde-.5, y = y_cde),
+                  arrow = arrow(length=unit(0.03, "npc"), type = 'closed'), colour = lineage_pal['4.3.3'], size = 1.5)
+  
+```
+```{r try treedater}
+# Try for cluster 1 - insufficient clock-like signal (consistent with what is described by Menardo)
+
+# Read in IQ-tree ML tree
+clust1_file = '/labs/jandr/walter/tb/pgy/msa/iqtree/cluster1/iqt.treefile'
+# Read tree file
+t1 = read.tree(clust1_file) 
+ggtree(t1, layout="circular", open.angle=10, size=0.5)
+seqlen = 14000
+
+# Get dates. 
+dts <- t_rooted$tip.label %>% as_tibble() %>% left_join(plot_df, by = c('value' = 'seq_name')) %>%
+  mutate(dec_date = decimal_date(datedx)) %>%
+  # Create a named vector with dates and names
+  pull(dec_date, value)
+
+# How are samples distributed through time?
+hist(dts, main = 'Time of sampling')
+
+# Select tree to use as input
+t = t_rooted # try all 
+# Fit timed tree
+dtr <- dater(t_rooted , dts, seqlen, clock = 'strict', omega0 = 1E-7, searchRoot = 200, numStartConditions = 20) # not dated
+plot( dtr , no.mar=T, cex = .2 )
+rootToTipRegressionPlot(dtr)
+dtr
+
+# Looks better when including the entire tree.Try with most dominant lineage. 
+nams <- plot_df %>% filter(sub_lineage == 'lineage4.1.2.1') %>% pull(seq_name)
+t2 <- drop.tip(t, tip = which(!t$tip.label %in% nams)) 
+dtr2 <- dater(t2, dts, seqlen, clock = 'strict', omega0 = 1E-7, searchRoot = 200, numStartConditions = 20) # not dated
+plot(dtr2 , no.mar=T, cex = .2 )
+rootToTipRegressionPlot(dtr2) 
+
+# Test for outliers
+outliers <- outlierTips(dtr2 , alpha = 0.20) 
+t3 <- ape::drop.tip(t2, rownames(outliers[outliers$q < 0.20,]) ) # 4 outliers
+t3
+
+# Try on reduced tree
+dtr3 <- dater(t3 , dts, seqlen, clock = 'strict', omega0 = 1E-7, ncpu = 8, searchRoot = 200, numStartConditions = 20) # not dated
+plot(dtr3, no.mar=T, cex = .2 )
+dtr3
+rootToTipRegressionPlot(dtr3)
+
+# Test for a relaxed clock
+rct <- relaxedClockTest(t3, dts, omega0 = 1E-8, seqlen, ncpu = 1 ) 
+rct
+
+# Try putting on mean rate limits
+dtr4 <- dater(t3 , dts, seqlen, clock = 'strict', omega0 = 1E-7, ncpu = 8, searchRoot = 200, numStartConditions = 20, meanRateLimits = c(1E-8,5E-7)) # not dated
+dtr4
+rootToTipRegressionPlot(dtr4)# Probably better to use BEAST to get error bars around MRCA. 
+
+
+# Try skygrowth - challenge is that it needs a phylo object. dater outputs a tr
+require(skygrowth)
+
+fit <- skygrowth.map(dtr4)
+  , res = 24*13  # Ne changes every 2 weeks
+ , tau0 = .1    # Smoothing parameter. If prior is not specified, this will also set the scale of the prior
+)
+
+```

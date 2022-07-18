@@ -1,0 +1,128 @@
+---
+title: "mtb_sequencing_summary"
+output: html_document
+---
+For all Mtb processed by Snakemake, combine run statistics. 
+```{r setup}
+root_dir = '/labs/jandr/walter/tb/mtb_tgen/'
+working_dir = paste('/labs/jandr/walter/tb/mtb_tgen/', sep = '')
+knitr::opts_knit$set(root.dir = root_dir)
+getwd()
+
+library(tidyverse)
+library(Hmisc)
+library(ggsci)
+library(furrr)
+library(ape)
+library(harrietr)
+library(ggridges)
+library(ggtree)
+library(pals)
+library(scales)
+library(ggnewscale)
+library(pegas)
+```
+
+```{r read in read files}
+# List files
+batches = list.files(working_dir)
+#read_files <- dir(path = paste(working_dir, batches[1], sep = '/'), glob2rx('*read_counts.txt'), full.names = TRUE, recursive = TRUE)
+reads_file <- 'working/read_counts_031822.txt'
+reads_df <- read_csv(reads_file) %>%
+  filter(!raw_reads == 'raw_reads') %>%
+  mutate(across(contains('reads'), as.numeric)) %>%
+  mutate(across(contains('bases'), as.numeric))
+
+df <- df %>%
+  filter(!str_ends(batch,'.gz'))
+
+```
+
+```{r plot reads lost at each step}
+
+# Summarize reads lost at each step
+df %>%
+  #rowid_to_column() %>% 
+  #select(!contains('reads')) %>%
+  pivot_longer(cols = 4:9, names_to = 'type', values_to = 'reads') %>%
+  mutate(type = factor(type, levels = c('raw_reads','trim_reads','kraken_reads', 'raw_bases','trim_bases','kraken_bases'))) %>%
+  filter(str_detect(type,'bases')) %>%
+  ggplot(aes(x = type, y = reads/1E6, color = type)) + 
+  facet_wrap(~batch) +
+  stat_summary(fun.data = 'mean_cl_normal') + 
+  theme_classic() + ylab('Mega basepairs' ) + 
+  scale_color_npg() + 
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+genome_len=4.4E6
+# Summarize throughput for SU022
+df %>%
+  filter(batch == 'SU022') %>%
+  dplyr::summarize(
+    n(),        
+    sum(raw_reads*2),
+    sum(raw_bases*2),
+    sum(trim_reads*2),
+    sum(trim_bases*2),
+    sum(kraken_reads*2),
+    sum(kraken_bases*2), 
+    sum(kraken_bases*2)/(n()*genome_len))
+
+```
+
+```{r list all data files across batches}
+setwd(working_dir)
+seq_lists <- paste('config/',c('Stanford_MT01-04','MT06-2022-03-04_withEnvCult','pgy','SU022','SU025','tgen_samples','tgen_samples2','tgen_samples3'),'.tsv', sep = '')
+seq_lists
+
+# Read in list of files and combine. 
+seq_df <- purrr::map_dfr(seq_lists, 
+  ~read_csv(.x))
+
+# Get the combined stats file names.
+seq_df <- seq_df %>%
+  mutate(stats_filename = paste('results/',batch, '/', sample, '/stats/', sample, '_bwa_H37Rv_all_stats.csv', sep = ''), 
+         stats_complete=file.exists(stats_filename))
+
+# Look at files without complete stats: 4 samples that had seq data errors: exclude these duplicates. 
+seq_df %>%
+  filter(!stats_complete)
+
+# Read stats into table. 
+# no_cores <- availableCores() - 1
+# no_cores
+# future::plan(multicore, workers = no_cores)
+# with_progress({
+#     p <- progressor(steps = 500)
+# 
+#   stats_df <- seq_df$stats_filename[seq_df$stats_complete] %>%
+#   future_map_dfr( 
+#   ~read_csv(.x, id = 'stats_filename')) 
+# 
+# })
+
+# read in combined file.
+stats_df <- read_csv('working/combined_all_stats_0522.csv') %>%
+  filter(!sampl...1 == 'sampl') %>% select(-sampl...40)
+stats_df <- stats_df %>%
+  mutate(batch = case_when(batch %in% c('Batch_2018-01-11','Batch_2018-06-26') ~ 'IS-1045',
+                           TRUE ~ batch),
+    sample = basename(str_remove(sampl...1, '_kraken')),
+                                stats_filename = paste('results/',batch, '/', sample, '/stats/', sample, '_bwa_H37Rv_all_stats.csv', sep = ''), 
+         stats_complete=file.exists(stats_filename)) %>% 
+  select(-sampl...1) %>% relocate(sample,batch) 
+table(stats_df$batch)
+stats_df$stats_filename[which(!stats_df$stats_filename %in% seq_df$stats_filename)]
+
+# Combine with sequence dictionary.
+stats_df <- stats_df %>% select(-c(fastq_1,batch,sample)) %>%
+  left_join(seq_df, by = 'stats_filename') %>%
+  relocate(sample,batch)
+# stats_df: holds sequence file information and all stats about mapping and coverage.  
+stats_df
+write.csv(stats_df, paste(root_dir, 'combined_stats/stats_df.csv', sep = ''), row.names = FALSE)
+```
+
+
+

@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# read from command line.
+msa=$1
+
+# Run raxml 
+/labs/jandr/walter/repos/raxml-ng/bin/raxml-ng --msa ${msa}

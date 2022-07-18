@@ -1,0 +1,300 @@
+################################
+#### Mtb bwa/GATK Snakemake ####
+################################
+import numpy as np
+from collections import defaultdict
+import pandas as pd
+#from snakemake.io import * # For testing interactively in python
+
+# Set MultiIndex using columns sample and batch to identify process uniquely. 
+#samples_df = pd.read_table('config/Stanford_MT01-04.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+#samples_df = pd.read_table('config/MT06-2022-03-04_withEnvCult.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+#samples_df = pd.read_table('config/pgy.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+#samples_df = pd.read_table('config/SU022.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+#samples_df = pd.read_table('config/SU025.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+#samples_df = pd.read_table('config/tgen_samples.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+samples_df = pd.read_table('config/tgen_samples2.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+#samples_df = pd.read_table('config/tgen_samples3_nodups.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+
+
+sample_names = list(samples_df['sample'])
+batch_names = list(samples_df['batch'])
+
+# fastq1 input function definition. Print only first if there are two matches.
+def fq1_from_sample(wildcards):
+  f1=samples_df.loc[wildcards.sample, wildcards.batch].fastq_1
+  return f1
+
+# fastq2 input function definition
+def fq2_from_sample(wildcards):
+  f2=samples_df.loc[wildcards.sample, wildcards.batch].fastq_2
+  return f2
+    
+# Define config file. Stores sample names and other things.
+configfile: "config/config.yaml"
+  
+# Define a rule for running the complete pipeline. 
+rule all:
+  input:
+    #trim = expand(['results/{batch}/{samp}/trim/{samp}_trim_1.fq.gz'], zip, samp=sample_names,batch=batch_names),
+    kraken=expand('results/{batch}/{samp}/kraken/{samp}_kr_1.fq.gz', zip, samp=sample_names,batch=batch_names),
+    bams=expand('results/{batch}/{samp}/bams/{samp}_{mapper}_{ref}_sorted.bam', zip, samp=sample_names,batch=batch_names, ref = config['ref']*len(sample_names), mapper = config['mapper']*len(sample_names)), # When using zip, need to use vectors of equal lengths for all wildcards.
+    reads_output = expand('results/{batch}/{samp}/stats/{samp}_read_counts.txt', zip, samp=sample_names,batch=batch_names),         
+    per_samp_run_stats = expand('results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_combined_stats.csv', zip, samp=sample_names,batch=batch_names, ref = config['ref']*len(sample_names), mapper = config['mapper']*len(sample_names)),         
+    #amr_stats=expand('results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_amr.csv', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names)),
+    cov_stats=expand('results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_cov_stats.txt', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names)),
+    #all_sample_stats=expand('results/{batch}/stats/combined_per_run_sample_stats.csv',batch = batch_names),
+    vcfs=expand('results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_{caller}_qfilt.vcf.gz', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names), caller = config['caller']*len(sample_names)),
+    ann_vcfs=expand('results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_ann.vcf.gz', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names)),
+    fastas=expand('results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_{caller}_{filter}.fa', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names), caller = config['caller']*len(sample_names), filter=config['filter']*len(sample_names)),
+    profiles=expand('results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_lineageSpo.csv', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names)),
+    quanttb=expand('results/{batch}/{samp}/stats/{samp}_quanttb.csv', zip, samp=sample_names,batch=batch_names)
+
+# Trim reads for quality. 
+rule trim_reads:  
+  input: 
+    p1=fq1_from_sample,
+    p2=fq2_from_sample
+  output:     
+    trim1=temp('results/{batch}/{sample}/trim/{sample}_val_1.fq.gz'),
+    trim2=temp('results/{batch}/{sample}/trim/{sample}_val_2.fq.gz')
+  params: 
+    sample='{sample}',
+    output_dir = 'results/{batch}/{sample}/trim/'
+  log: 
+    'results/{batch}/{sample}/trim/{sample}_trim_reads.log'
+  conda: 'mtb'
+  shell:
+    'trim_galore --basename {params.sample} --nextseq 20 --gzip --output_dir {params.output_dir} --paired {input.p1} {input.p2}'
+
+# Filter reads taxonomically with Kraken.   
+rule taxonomic_filter:
+  input:
+    trim1='results/{batch}/{samp}/trim/{samp}_val_1.fq.gz',
+    trim2='results/{batch}/{samp}/trim/{samp}_val_2.fq.gz'
+  output: 
+    kr1='results/{batch}/{samp}/kraken/{samp}_kr_1.fq.gz',
+    kr2='results/{batch}/{samp}/kraken/{samp}_kr_2.fq.gz',
+    kraken_report='results/{batch}/{samp}/kraken/{samp}_kraken.report',
+    kraken_stats = 'results/{batch}/{samp}/kraken/{samp}_kraken_stats.csv'
+  log: 
+    'results/{batch}/{samp}/kraken/{samp}_kraken.log'
+  threads: 8
+  conda: 'mtb'
+  shell:
+    '{config[scripts_dir]}run_kraken.sh {input.trim1} {input.trim2} {output.kr1} {output.kr2} {output.kraken_report} &>> {log}'
+    
+# Run QuantTB
+rule quanttb: 
+  input: 
+    kr1='results/{batch}/{samp}/kraken/{samp}_kr_1.fq.gz',
+    kr2='results/{batch}/{samp}/kraken/{samp}_kr_2.fq.gz'
+  output: 
+    quanttb_out= 'results/{batch}/{samp}/stats/{samp}_quanttb.csv'
+  log: 
+    'results/{batch}/{samp}/stats/{samp}_quanttb.log'
+  threads: 8
+  conda: 'mtb'
+  shell:
+    '{config[scripts_dir]}run_quanttb.sh {input.kr1} {input.kr2} {output.quanttb_out} &>> {log}'
+
+# Map reads and remove duplicates in same step. 
+rule map_reads:
+  input:
+    ref_path='/labs/jandr/walter/tb/data/refs/{ref}.fa',
+    kr1='results/{batch}/{samp}/kraken/{samp}_kr_1.fq.gz',
+    kr2='results/{batch}/{samp}/kraken/{samp}_kr_2.fq.gz'
+  output:
+    bam=temp('results/{batch}/{samp}/bams/{samp}_{mapper}_{ref}_sorted.bam'),
+    combined_bam ='results/{batch}/{samp}/bams/{samp}_{mapper}_{ref}.merged.rmdup.bam'
+  params:
+    mapper='{mapper}',
+    tmp_dir='results/{batch}/{samp}/bams/'
+  log:
+    'results/{batch}/{samp}/bams/{samp}_{mapper}_{ref}_map.log'
+  threads: 8
+  conda: 'mtb'
+  shell:
+    '''
+    {config[scripts_dir]}map_reads.sh {input.ref_path} {params.mapper} {input.kr1} {input.kr2} {output.bam} &>> {log}
+    sambamba markdup -r -t {threads} --tmpdir={params.tmp_dir} {output.bam} {output.combined_bam}
+    '''
+    
+# Reads output.
+rule reads_output:
+  input:
+    p1=fq1_from_sample,
+    trim1='results/{batch}/{samp}/trim/{sample}_trim_1.fq.gz',
+    kr1='results/{batch}/{samp}/kraken/{sample}_kr_1.fq.gz'
+  output:
+    reads_stats='results/{batch}/{samp}/stats/{sample}_read_counts.txt'
+  log:
+    'results/{batch}/{samp}/stats/{sample}_read_counts.log'
+  shell:    
+    '''
+    {config[scripts_dir]}reads_output.sh {input.p1} {input.trim1} {input.kr1} {output.reads_stats} &>> {log}
+    ''' 
+  
+# Get coverage & kraken statistics (per sample-run). 
+rule per_samp_stats: 
+  input:
+    ref_path='/labs/jandr/walter/tb/data/refs/{ref}.fa',
+    bam='results/{batch}/{samp}/bams/{samp}_{mapper}_{ref}_sorted.bam',
+    kraken_stats = 'results/{batch}/{samp}/kraken/{samp}_kraken_stats.csv',
+    reads_stats='results/{batch}/{samp}/stats/{samp}_read_counts.txt',
+    quanttb_out= 'results/{batch}/{samp}/stats/{samp}_quanttb.csv'
+  output:
+    cov_stats='results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_cov_stats.txt',
+    combined_stats = temp('results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_combined_stats.csv'),
+    all_stats = 'results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_all_stats.csv'
+  log:
+    'results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_cov_stats.log'
+  conda: 'mtb'
+  params:
+    prefix='results/{batch}/{samp}/stats/{samp}'
+  shell:    
+    '''
+    {config[scripts_dir]}cov_stats.sh {input.ref_path} {input.bam} {output.cov_stats} &>> {log}
+    
+    paste {input.kraken_stats} <(sed -n '7,8'p {output.cov_stats} ) > {output.combined_stats}
+    
+    # Combine with reads output
+    paste  -d ',' <( cat {output.combined_stats} | tr "\\t" "," ) {input.reads_stats} {input.quanttb_out} > {output.all_stats}
+
+    # Mosdepth coverage along genome (for plotting)
+    mosdepth --by 2000 -Q 30 {params.prefix} {input.bam}
+    '''
+    
+# Combine all per sample-run stats
+rule all_stats:
+  input: 
+    combined_stats = expand('results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_combined_stats.csv', zip, samp=sample_names,batch=batch_names, ref = config['ref']*len(sample_names), mapper = config['mapper']*len(sample_names))
+  output: 
+    'results/{batch}/stats/combined_per_run_sample_stats.csv'
+  shell:
+    "cat {input.combined_stats} > {output}"
+ 
+
+# TB Profiler to assign sub-lineage.
+rule tb_profiler: 
+  input: 
+    combined_bam = 'results/{batch}/{samp}/bams/{samp}_{mapper}_{ref}.merged.rmdup.bam'
+  params: 
+    tmp_file='results/{batch}/{samp}/stats/results/{samp}.results.csv',
+    outdir='results/{batch}/{samp}/stats/', 
+    samp='{samp}'
+  output:
+    profile='results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_lineageSpo.csv'   
+  log:
+    'results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_lineage.log' 
+  conda: 'mtb'
+  shell: 
+    """
+    tb-profiler profile --bam {input.combined_bam} --prefix {params.samp} --dir {params.outdir} --csv --spoligotype &>> {log}
+    mv {params.tmp_file} {output.profile}    
+    
+    """
+     
+# Run AMR prediction tool. Removing for now.
+rule predict_amr: 
+  input: 
+    combined_bam = 'results/{batch}/{samp}/bams/{samp}_{mapper}_{ref}.merged.rmdup.bam'
+  output:
+    amr_out='results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_amr.csv'   
+  log:
+    'results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_amr.log' 
+  conda: 'envs/mykrobe.yaml'
+  shell: 
+    "{config[scripts_dir]}mykrobe_predict.sh {input.combined_bam} {output.amr_out} &>> {log}"
+
+# Call variants with GATK.
+rule gatk_call:
+  input: 
+    ref_path='/labs/jandr/walter/tb/data/refs/{ref}.fa',
+    combined_bam = 'results/{batch}/{samp}/bams/{samp}_{mapper}_{ref}.merged.rmdup.bam'
+  params:
+    ploidy='1'
+  output: 
+    vcf=temp('results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk.vcf.gz')
+  log:
+    'results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk.log' 
+  conda: 'mtb'
+  shell: 
+    "{config[scripts_dir]}call_vars_gatk.sh {input.ref_path} {input.combined_bam} {params.ploidy} {output.vcf} &>> {log}"
+
+# Annotate snps. Need bcftools here. 
+rule annotate_snps: 
+  input:
+    vcf='results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk.vcf.gz'
+  log: 
+    'results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_annotate_snps.log'
+  output:
+    rename_vcf=temp('results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_rename.vcf.gz'),
+    tmp_vcf=temp('results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_tmp.vcf.gz'),
+    ann_vcf='results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_ann.vcf.gz'
+  conda: 'mtb'
+  params: 
+    bed=config['bed_path'],
+    vcf_header=config['vcf_header']
+  shell:
+    '''
+    # Rename Chromosome to be consistent with snpEff/Ensembl genomes.
+    zcat {input.vcf}| sed 's/NC_000962.3/Chromosome/g' | bgzip > {output.rename_vcf}
+    tabix {output.rename_vcf}
+
+    # Run snpEff
+    java -jar -Xmx8g {config[snpeff]} eff {config[snpeff_db]} {output.rename_vcf} -dataDir {config[snpeff_datapath]} -noStats -no-downstream -no-upstream -canon > {output.tmp_vcf}
+
+    # Also use bed file to annotate vcf and again rename chromosome
+    bcftools annotate -a {params.bed} -h {params.vcf_header} -c CHROM,FROM,TO,FORMAT/PPE {output.tmp_vcf} > {output.ann_vcf}
+
+    '''
+    
+# Hard filter variants.     
+rule hard_filter:
+  input:
+    ann_vcf='results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_ann.vcf.gz'
+  log: 
+    'results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_qfilt_stats.log'
+  output:
+    filt_vcf='results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_qfilt.vcf.gz'
+  conda: 'mtb'
+  shell:
+    '''
+    
+   # Filter + rename Chromosome.
+    bcftools filter -e "QUAL < {config[qual_filter]} || FORMAT/DP < {config[depth_filter]}" --set-GTs '.' {input.ann_vcf}  | sed 's/Chromosome/NC_000962.3/g' | bgzip > {output.filt_vcf}
+
+    # Index filtered VCF.
+    tabix -f -p vcf {output.filt_vcf}
+
+    # Print out stats to log file. 
+    bcftools stats {output.filt_vcf} &>> {log} 
+    
+   '''
+ 
+# Convert single sample VCF to fasta + filter PPE genes. 
+rule vcf_to_fasta:
+  input: 
+    ref_path='/labs/jandr/walter/tb/data/refs/{ref}.fa',
+    filt_vcf='results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_qfilt.vcf.gz'
+  params:
+    sample_name = "{samp}",
+    bed=config['bed_path']
+  output:
+    fasta='results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_gatk_{filt}.fa'
+  log: 
+   'results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_gatk_{filt}.log'
+  conda: 'mtb'
+  shell:
+    '''
+    {config[scripts_dir]}vcf2fasta.sh {input.ref_path} {input.filt_vcf} {params.sample_name} {params.bed} {output.fasta}    
+	'''    
+
+# Print out if success
+onsuccess:
+    print("Workflow finished! No error")
+
+# Print out if workflow error
+onerror:
+    print("An error occurred")

@@ -1,0 +1,7 @@
+name: test
+channels:
+  - bioconda
+  - r
+  - defaults
+  - conda-forge
+prefix: /home/kwalter/.conda/envs/test
