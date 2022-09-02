@@ -5,9 +5,9 @@
 # Set up environmemnt
 ref=/labs/jandr/walter/tb/data/refs/H37Rv.fa
 DATA_DIR=/labs/jandr/walter/tb/data/
-PROCESS_DIR=/labs/jandr/walter/tb/mtb_tgen/
+PROCESS_DIR=/labs/jandr/walter/tb/mtb/
 SNPEFF_DIR=/labs/jandr/walter/tb/data/refs/snpEff/
-SCRIPTS_DIR=/labs/jandr/walter/tb/mtb/workflow/scripts/
+SCRIPTS_DIR=${PROCESS_DIR}workflow/scripts/
 XML_DIR=/labs/jandr/walter/tb/pgy/xml/
 IQTREE_DIR=/labs/jandr/walter/tb/pgy/msa/iqtree/
 module add anaconda/3_2022.05
@@ -60,15 +60,71 @@ model=TVM+F+ASC+R4
 sbatch --mem 100G -e ${prefix}.er -o ${prefix}.out --ntasks=16 --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_iqtree.sh $snps $model ${IQTREE_DIR}${prefix} 1000
 
 # There is a lot of missingness in the data - try trimming alignment to see if it changes things. 
-# Need to rerun with a less intensive depth filter
-# Also confirm that PPE filter is being applied. 
-## Instead, combine VCF files and then extract snps
-vcf_list='/labs/jandr/walter/tb/pgy/msa/pgy_vcf_list.txt'
-combined_vcf=/labs/jandr/walter/tb/pgy/msa/pgy_combined.vcf.gz
-bcftools merge --file-list ${vcf_list} -o ${combined_vcf} -O z --force-samples
+# Need to rerun with a less intensive depth filter # Also confirm that PPE filter is being applied. 
 
-# Need to reheader VCF files before merging them. 
-https://github.com/samtools/bcftools/issues/823
+##############
+#### MSA2 ####
+##############
+# Rename fasta with duplicate name: 
+dup_name=results/corrida1510/35/fasta/35_bwa_H37Rv_gatk_qfilt.fa
+sed -i 's/>35/>35_corrida1510/g' $dup_name
+
+fasta_list=/labs/jandr/walter/tb/pgy/msa/pgy_fasta_list_single.txt
+msa=/labs/jandr/walter/tb/pgy/msa/pgy_msa_080322.fa
+snps=/labs/jandr/walter/tb/pgy/msa/pgy_msa_snps_080322.fa
+
+# Update PPE masking with script. 
+fasta_list=/labs/jandr/walter/tb/pgy/msa/pgy_fasta_list_single.txt
+bed=/labs/jandr/walter/varcal/data/refs/ppe_gagneux_0based_snpeff.bed.gz
+
+while read line
+ do echo $line
+ sbatch -A jandr -t 20 /labs/jandr/walter/tb/mtb/workflow/scripts/mask_ppe.sh $line $bed
+done < ${fasta_list}
+
+# List of masked fastas
+sed 's/qfilt.fa/qfilt_masked.fa/g' $fasta_list > /labs/jandr/walter/tb/pgy/msa/pgy_fasta_list_single_masked.txt
+fasta_list_masked=/labs/jandr/walter/tb/pgy/msa/pgy_fasta_list_single_masked.txt
+
+# Create MSA.
+while read line
+ do #echo $line
+ cat $line
+done < ${fasta_list_masked} >  ${msa}
+
+rclone copy $msa box:Box/TB/spillover/paraguay/msa/
+
+# Snp-sites
+conda activate snp-sites
+snp-sites ${msa} > ${snps} # issues with alignment length only when using the -m option. exclude this and it works fine.
+
+rclone copy $snps box:Box/TB/spillover/paraguay/msa/
+
+# Is the problem with interleaved FASTA adding spaces? 14,100 SNP sites.
+seqkit stats $snps
+
+# IQ-Tree - find best model and fit tree
+#/Applications/iqtree-1.6.12-MacOSX/bin/iqtree -s Box/Box/TB/spillover/paraguay/msa/pgy_msa.fa -st DNA -nt 8 -m HKY
+
+cd /labs/jandr/walter/tb/pgy/msa/iqtree
+# Submit to run model selection
+msa=$snps
+model=MFP+ASC # model search for only the models with ASC
+prefix=pgy_single_masked
+sbatch --mem 100G -e ${prefix}.er -o ${prefix}.out --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_iqtree.sh $snps $model ${IQTREE_DIR}${prefix}
+
+# Wait for model selection to complete and add boostraps - can use multiple cores (ntasks; does not matter where they are assigned)
+prefix=pgy_single_masked_bs
+model=K3Pu+F+ASC+R5
+sbatch --mem 100G -e ${prefix}.er -o ${prefix}.out --ntasks=16 --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_iqtree.sh $snps $model ${IQTREE_DIR}${prefix} 1000
+
+# ## Instead, combine VCF files and then extract snps
+# vcf_list='/labs/jandr/walter/tb/pgy/msa/pgy_vcf_list.txt'
+# combined_vcf=/labs/jandr/walter/tb/pgy/msa/pgy_combined.vcf.gz
+# bcftools merge --file-list ${vcf_list} -o ${combined_vcf} -O z --force-samples
+# 
+# # Need to reheader VCF files before merging them. 
+# https://github.com/samtools/bcftools/issues/823
 
 ##################################################
 #### Collate all lineage information from PGY ####
@@ -91,159 +147,134 @@ grep '"Rv2428","ahpC"'  ../../mtb_tgen/results/*/*/stats/*_bwa_H37Rv_lineage.csv
 conda activate snp-sites
 
 # For cluster specific msas, select snps only. 
-for msa in msa/cluster{2,4,5,12}.fa ; do
+for msa in msa/cluster{2,4,5,11}_filt.fa ; do
   snps=${msa/.fa/_snps.fa}
   snp-sites ${msa} > ${snps}
 done 
+
+# Do the same for lineage4.4.1.1
+msa=/labs/jandr/walter/tb/pgy/msa/lineage4.4.1.1_filt.fa
+snps=${msa/.fa/_snps.fa}
+snp-sites ${msa} > ${snps}
+# Do the same for lineage4.1.2.1
+msa=/labs/jandr/walter/tb/pgy/msa/lineage4.1.2.1_filt.fa
+snps=${msa/.fa/_snps.fa}
+snp-sites ${msa} > ${snps}
+# Do the same for lineage4.3.3
+msa=/labs/jandr/walter/tb/pgy/msa/lineage4.3.3_filt.fa
+snps=${msa/.fa/_snps.fa}
+snp-sites ${msa} > ${snps}
 
 cd ${XML_DIR}
 module load BEAST2
 module load BEAGLE
 module load tracer
 
+# Move XMLs to correct directories in ${XML_DIR}filt/
+
 # To fix clock, need to update the operators in the XML files to not sample clock rate. There are 2 operators that need to be changed.
-for xml in /labs/jandr/walter/tb/pgy/xml/single_samps/{constant,skyline}Fixed/*xml; 
+for xml in ${XML_DIR}filt/{constant,skyline}Fixed/*xml; 
   do echo $xml; 
   # Sed to do string replacement only on lines containing a pattern.
   sed -ie '/StrictClockRateScaler/ s/weight="3.0"/weight="0.0"/g' ${xml} 
   sed -ie '/strictClockUpDownOperator/ s/weight="3.0"/weight="0.0"/g' ${xml} 
 done
 
-# Refit BEAST trees after excluding mixed infections. Running the fixed clock models again. 
-for xml_path in ${XML_DIR}single_samps/*/*xml ; do 
-# for xml_path in ${XML_DIR}single_samps/*Fixed/*xml ; do 
+# Refit BEAST trees after excluding PPE genes. Running the fixed clock models again.
+#for xml_path in ${XML_DIR}filt/*/*snpcor.xml ; do 
+for xml_path in ${XML_DIR}filt/*/{lineage4.1.2.1,lineage4.3.3}*snpcor.xml ; do 
   cd $(dirname $xml_path)
-  xml=$(basename $xml_path)
-  echo $xml
-  sbatch -e ${xml}.out -o ${xml}.out --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_beast.sh ${xml}
-done
-
-# Cluster 2 and cluster 4 skyline/fixedClock did not converge -- resume these runs. 
-for xml_path in ${XML_DIR}single_samps/*Fixed/*xml ; do 
   cd $(dirname $xml_path)
   xml=$(basename $xml_path)
   echo $xml
   sbatch -e ${xml}.out -o ${xml}.out --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_beast.sh ${xml} resume
 done
 
-# Summarize trees - come back to do the fixedClock
-for tre in /labs/jandr/walter/tb/pgy/xml/single_samps/{constant,skyline}/*snps.trees; do
+# Resample trees.
+for tre in ${XML_DIR}filt/*/*snps.trees; do
   echo $tre
-  logcombiner --burnin 50 -renumber -resample 90000 -log $tre -o ${tre/.trees/_sampled.trees} &
+  logcombiner --burnin 10 -renumber -resample 90000 -log $tre -o ${tre/.trees/_sampled.trees} &
 done  
 
-# Specify longer burnins for cluster 2 and 4
-tre=cluster2_snps.trees
-logcombiner --burnin 75 -renumber -resample 90000 -log $tre -o ${tre/.trees/_sampled.trees} &
-tre=cluster4_snps.trees
-logcombiner --burnin 50 -renumber -resample 90000 -log $tre -o ${tre/.trees/_sampled.trees} &
-tre=cluster5_snps.trees
-logcombiner --burnin 50 -renumber -resample 90000 -log $tre -o ${tre/.trees/_sampled.trees} &
-
-
+# For lineages, longer burn-in. 
+for tree in ${XML_DIR}filt/*/{lineage4.1.2.1,lineage4.3.3}*snps.trees ; do 
+  echo $tre
+  logcombiner --burnin 25 -renumber -resample 90000 -log $tre -o ${tre/.trees/_sampled.trees} &
+done  
 
 # MCC trees for plotting
-for tre in /labs/jandr/walter/tb/pgy/xml/single_samps/{constant,skyline}/*snps_sampled.trees; do 
+for tre in ${XML_DIR}filt/*/*_sampled.trees; do 
+for tre in ${XML_DIR}filt/*/{lineage4.1.2.1,lineage4.3.3}*_sampled.trees; do 
   echo $tre
   treeannotator -burnin 0 -heights median ${tre} ${tre/_sampled.trees/_median_mcc.txt} &
 done
 
-
-
-
-
-###### OLDER #####
-
-# Run different pop models in separate directories so outputs are not overwritten.
-# Trying SNP-only alignments. 
-
-# Submit all constant pop files
-#for xml in constant/*constant_snpcor.xml ; do 
-for xml_path in ${XML_DIR}constant_snps/*_snps_constant_priors_snpcor.xml ; do 
+# Cluster 4 skyline/fixedClock did not converge -- resumed for a total of 200 million samples.
+for xml_path in ${XML_DIR}filt/skylineFixed/cluster4_filt_snps_skyline_fixed_snpcor.xml ; do 
   cd $(dirname $xml_path)
   xml=$(basename $xml_path)
-  echo $xml
-  sbatch -e ${xml}.out -o ${xml}.out --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_beast.sh ${xml}
-done
-
-# Submit all skyline files
-#for xml in skyline/*skyline_snpcor.xml ; do 
-for xml_path in ${XML_DIR}skyline_snps/*_skyline_priors_snpcor.xml ; do 
-  cd $(dirname $xml_path)
-  xml=$(basename $xml_path)
-  echo $xml
-  sbatch -e ${xml}.out -o ${xml}.out --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_beast.sh ${xml}
-done
-
-# Resubmit cluster1 skyline (did not converge)
-sbatch -e ${xml}.out -o ${xml}.out --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_beast.sh cluster1_skyline_snpcor.xml resume
-
-# Submit xml runs for fixed clock models. 
-for xml in ${XML_DIR}constant/fixedclock/*_snpcor.xml  ${XML_DIR}skyline/fixedclock/*_snpcor.xml; do 
-  cd $(dirname $xml)
-  echo $xml
-  sbatch -e ${xml}.out -o ${xml}.out --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_beast.sh ${xml}
-done
-
-# Resume xml runs for fixed clock models, including lienage4.4.1.1 here 7/5/22.
-for xml in ${XML_DIR}constant_snps/fixedClock/*_snpcor.xml  ${XML_DIR}skyline_snps/fixedClock/*_snpcor.xml; do 
-  cd $(dirname $xml)
   echo $xml
   sbatch -e ${xml}.out -o ${xml}.out --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_beast.sh ${xml} resume
 done
 
-# Submit xml runs for BD skyline plot models. Resume chains because no convergence.
-for xml in ${XML_DIR}/skyline/BDskyline/*_snpcor.xml ; do 
-  cd $(dirname $xml)
-  echo $xml
-  sbatch -e ${xml}.out -o ${xml}.out --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_beast.sh ${xml} resume
-done
-
-# Submit xml runs for BD skyline plot models with 10 dimensions in a new directory. 
-for xml in ${XML_DIR}/skyline/BDskyline_d10/*_snpcor.xml ; do 
-  cd $(dirname $xml)
-  echo $xml
-  sbatch -e ${xml}.out -o ${xml}.out --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_beast.sh ${xml}
-done
-
-# Summarize output logs.
-for log in *.log ; do 
-  if [[ ! -f ${log/.log/_sampled.log} ]]; then
-  echo $log
-  logcombiner --burnin 10 -renumber -resample 90000 -log $log -o ${log/.log/_sampled.log} & 
- fi
-done 
-
-# Summarize output trees for visualization. Update burn-in percentages. Come back to redo cluster 4 after running longer.
-cd /labs/jandr/walter/tb/pgy/xml/skyline_snps/fixedClock
-for tre in *snps.trees; do 
+# For cluster 4, redo resampling and MCC trees. 
+# Resample trees.
+for tre in  ${XML_DIR}filt/skylineFixed/cluster4_filt*.trees ; do
   echo $tre
   logcombiner --burnin 50 -renumber -resample 90000 -log $tre -o ${tre/.trees/_sampled.trees} &
 done  
 
 # MCC trees for plotting
-for tre in *_sampled.trees; do 
+for tre in ${XML_DIR}filt/skylineFixed/cluster4_filt*_sampled.trees; do 
   echo $tre
   treeannotator -burnin 0 -heights median ${tre} ${tre/_sampled.trees/_median_mcc.txt} &
 done
 
-# Summarize output lineage 4.4.1.1 constant pop size. 
-cd /labs/jandr/walter/tb/pgy/xml/constant_snps/fixedClock
-tre=lineage4.4.1.1_snps.trees
-logcombiner --burnin 50 -renumber -resample 90000 -log $tre -o ${tre/.trees/_sampled.trees} &
-tre=lineage4.4.1.1_snps_sampled.trees
-treeannotator -burnin 0 -heights median ${tre} ${tre/_sampled.trees/_median_mcc.txt} &
+# MultiType tree
+cd /labs/jandr/walter/tb/pgy/xml/multiType
 
-# View with tracer and use tracer to do Bayesian skyline reconstruction, following the tutorial. 
-# For cluster 1, set burnin to 100,000,000 after a 200,000,000 chain run. 
-module load tracer
-
-#### Submit BEAST runs for sublineages ####
-for xml in ${XML_DIR}{constant,skyline}/lineage*_snpcor.xml ; do 
-  cd $(dirname $xml)
-  echo $xml
-  sbatch -e ${xml}.out -o ${xml}.out --account=jandr -t 48:00:00 ${SCRIPTS_DIR}run_beast.sh ${xml}
+# To fix clock, need to update the operators in the XML files to not sample clock rate. There are 2 operators that need to be changed.
+for xml in *xml; 
+  do echo $xml; 
+  # Sed to do string replacement only on lines containing a pattern.
+  sed -ie '/StrictClockRateScaler/ s/weight="3.0"/weight="0.0"/g' ${xml} 
+  sed -ie '/strictClockUpDownOperator/ s/weight="3.0"/weight="0.0"/g' ${xml} 
 done
+
+# Submit BEAST trees. 
+for xml_path in *snpcor.xml ; do 
+  cd $(dirname $xml_path)
+  xml=$(basename $xml_path)
+  echo $xml
+  sbatch -e ${xml}.out -o ${xml}.out --account=jandr --mem 500G -t 48:00:00 ${SCRIPTS_DIR}run_beast.sh ${xml} 
+done
+
+
+####################
+#### SRA UPLOAD ####
+####################
+
+## Copy files locally
+rclone copy "/labs/jandr/walter/tb/pgy/metadata/pgy_sra_data_081222.tsv" box:Box/TB/spillover/paraguay/seq/
+rclone copy "/labs/jandr/walter/tb/pgy/metadata/pgy_biosample_data_081222.tsv" box:Box/TB/spillover/paraguay/seq/
+
+## List of files to rename
+rename_list=/labs/jandr/walter/tb/pgy/metadata/file_dictionary.csv
+key_dir=/tmp/key/
+key_path=${key_dir}key.txt
+upload_dir=/tmp/sra_upload_0822/
+mkdir $upload_dir
+mkdir $key_path
+
+## Need to rename files for SRA upload so they do not include PHI. 
+while read -r a b; do
+  # Remove echo if satisfied by the output
+  cp "$a" "$b"
+done < $rename_list
+
+## Upload
+module load aspera
+ascp -i ${key_path} -QT -l100m -k1 -d ${upload_dir} subasp@upload.ncbi.nlm.nih.gov:uploads/kwalter_stanford.edu_hG59bCBT
 
 ###########################
 ## Look at ahpC mutation ##

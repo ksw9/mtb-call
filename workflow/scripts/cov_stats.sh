@@ -1,10 +1,6 @@
 #!/bin/bash
 # Get coverage stats.
 
-# Source environment with all necessary software.
-module load anaconda
-source activate snakemake
-
 # Read from command line: bam, ref genome.
 ref=${1} 
 bam=${2}

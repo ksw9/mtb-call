@@ -25,16 +25,10 @@ meta_file = paste(meta_dir, 'pgy_full_data.csv', sep = '')
 pgy_df <- read_csv(meta_file)
 
 # SNP MSA
-snps_fasta <- '/labs/jandr/walter/tb/pgy/msa/pgy_msa_snps.fa'
+snps_fasta <- '/labs/jandr/walter/tb/pgy/msa/pgy_msa_snps_080322.fa'
 # Need to use read.dna function so that DNAbin has row names
 f <- read.dna(snps_fasta,format = 'fasta') # To get the characters, use, as.character = TRUE, to input matrix, use, as.matrix = TRUE. (Format will not be DNAbin)
 str(f)
-
-# Strange pattern where '1' is added to end of sample name.
-new_labels <- str_remove(labels(f), "1$")
-rownames(f) <- new_labels
-rownames(f)[which(!rownames(f) %in% pgy_df$seq_name)] # all fasta names are in seq_name
-
 
 ```
 
@@ -45,7 +39,7 @@ d <- dist.dna(f, pairwise.deletion = TRUE, model = 'N', as.matrix = TRUE)
 hist(d)
 
 tshort <- 20
-tlong <- 200
+tlong <- 50
 genome_length <- 4411532
 masked_length <- 495091
 m <- genome_length - masked_length # effective genome sizedim(f)[2] # unsure what this should be
@@ -73,8 +67,13 @@ thd_df <- data.frame(cbind(thd.short.lz,thd.long.lz)) %>%
 table(thd_df$prisoner, useNA = 'always')
 dim(thd_df)
 
+# Add variable for ahpC mutation
+thd_df <- thd_df %>% mutate(ahpC = case_when(as.numeric(ahpC_fraction) > .5 ~ 1, TRUE ~ 0))
+
 # Examine the distribution of THDs depending on the timescale
 thd.plot <- thd_df %>%
+  mutate(inc_status = case_when(inc_status == 'Community' ~ 'Never incarcerated',
+  TRUE ~ inc_status)) %>%
   pivot_longer(cols = c(thd.short,thd.long),names_to = 'Time period', values_to = 'thd') %>%
   mutate(`Time period` = case_when(`Time period` == 'thd.long' ~ 'Long',
                                    `Time period` == 'thd.short' ~ 'Short'),
@@ -86,7 +85,7 @@ thd.plot <- thd_df %>%
   scale_fill_lancet(name="Incarceration status") + 
   theme(axis.text.x=element_blank())
 thd.plot
-#ggsave(thd.plot, filename = paste(plot_dir, 'thd_plot.pdf', sep = ''))
+ggsave(thd.plot, filename = paste(plot_dir, 'thd_plot.pdf', sep = ''))
 
 # Summarize statistics for reporting
 thd_df %>%
@@ -100,16 +99,14 @@ thd_df %>%
 thd_df %>%
   filter(inc_status %in% c('Incarcerated','Formerly incarcerated')) %>%
   t_test(formula = thd.short ~ inc_status,
-      order = c('Incarcerated','Formerly incarcerated'),
-      alternative = "greater") %>%
+      order = c('Incarcerated','Formerly incarcerated')) %>%
   mutate(across(where(is.numeric), round, 2))
 
 # t-test compare incarcerated group to the community
 thd_df %>%
   filter(inc_status %in% c('Incarcerated','Community')) %>%
   t_test(formula = thd.short ~ inc_status,
-      order = c('Incarcerated','Community'),
-      alternative = "greater") %>%
+      order = c('Incarcerated','Community')) %>%
   mutate(across(where(is.numeric), round, 5))
 
 # Summarize statistics for isn resistance
@@ -125,8 +122,7 @@ thd_df %>%
 thd_df %>%
   filter(isoniazid %in% c('ahpC_c.-74G>A','-')) %>%
   t_test(formula = thd.short ~ isoniazid,
-      order = c('-','ahpC_c.-74G>A'),
-      alternative = "greater") %>%
+      order = c('-','ahpC_c.-74G>A')) %>%
   mutate(across(where(is.numeric), round, 5))
 
 ```
@@ -135,12 +131,6 @@ adj.short <- thd.adjust(thd.short.lz, d, 20)
 adj.long <- thd.adjust(thd.long.lz, d, 20)
 ncol(adj.short); ncol(adj.long)
 dim(adj.short)
-
-# Combine adjusted THD with dataframe
-thd_adj_df <- data.frame(cbind(adj.short,adj.long)) %>%
-  rownames_to_column(var = 'seq_name') %>%
-  rename(adj.short = X1, adj.long = X2) %>%
-  left_join(thd_df, by = 'seq_name')
 
 # Anova to test if effect of incarceration is independent of population structure - short timescale
 anova(lm(thd.short ~ inc_status, data = thd_df))
@@ -155,12 +145,12 @@ anova(lm(thd.long ~ inc_status + location, data = thd_df))
 anova(lm(thd.long ~ inc_status + adj.long + location, data = thd_df))
 
 # Anova to test if effect of isn resistance is independent of population structure - short timescale
-anova(lm(thd.short ~ isoniazid, data = thd_df))
+anova(lm(thd.short ~ ahpC, data = thd_df))
 
 # Anova to test if effect of isn resistance is independent of population structure - short timescale - association
-anova(lm(thd.short ~ inc_status + isoniazid + adj.short, data = thd_df))
+anova(lm(thd.short ~  ahpC + adj.short, data = thd_df))
 
-# But not drug-resistance overall
+# Also drug-resistance overall
 anova(lm(thd.short ~ DR_type + adj.short, data = thd_df))
 
 

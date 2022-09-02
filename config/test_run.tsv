@@ -1,0 +1,4 @@
+sample,fastq_1,fastq_2,batch,run
+F-14-C0-67,/labs/jandr/walter/tb/data/IS-1018/Batch_2018-01-11/F-14-C0-67_S203_R1_001.fastq.gz,/labs/jandr/walter/tb/data/IS-1018/Batch_2018-01-11/F-14-C0-67_S203_R2_001.fastq.gz,IS-1018,Batch_2018-01-11
+F-14-Co--21,/labs/jandr/walter/tb/data/IS-1018/Batch_2018-01-11/F-14-Co--21_S204_R1_001.fastq.gz,/labs/jandr/walter/tb/data/IS-1018/Batch_2018-01-11/F-14-Co--21_S204_R2_001.fastq.gz,IS-1018,Batch_2018-01-11
+F-14-Co-25,/labs/jandr/walter/tb/data/IS-1018/Batch_2018-01-11/F-14-Co-25_S277_R1_001.fastq.gz,/labs/jandr/walter/tb/data/IS-1018/Batch_2018-01-11/F-14-Co-25_S277_R2_001.fastq.gz,IS-1018,Batch_2018-01-11

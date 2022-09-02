@@ -1,0 +1,29 @@
+{
+    "__default__" :
+    {
+        "account" : "jandr",
+        "time" : "45:00",
+        "n" : 1,
+         "name"      : "JOBNAME.{rule}.{wildcards}",
+        "output"    : "logs/{rule}.{wildcards}.out",
+        "error"     : "logs/{rule}.{wildcards}.err", 
+        "memory": 500G
+    },
+    "annotate_snps" :
+    {
+        "time" : "45:00",
+        "memory": 100G
+    },
+        "taxonomic_filter" :
+    {
+        "time" : "2:00:00",
+        "memory": 100G
+    },
+            "gatk_call" :
+    {
+        "time" : "1:00:00",
+        "memory": 100G
+    }
+
+
+}

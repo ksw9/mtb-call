@@ -1,0 +1,34 @@
+## Rule parameters ##
+ref:
+    ['H37Rv']
+mapper: 
+    ['bwa']
+caller:
+    ['gatk']
+filter:
+    ['qfilt']
+depth_filter:
+    ['5']
+qual_filter:
+    ['30'] 
+## Locations ##
+ref_dir:
+    '/labs/jandr/walter/tb/data/refs/'
+snpeff:
+    '/scg/apps/software/snpeff/4.3t/snpEff/snpEff.jar'
+snpeff_db:
+    'Mycobacterium_tuberculosis_h37rv'
+snpeff_datapath:
+    '/labs/jandr/walter/tb/data/refs/snpEff/'
+bed_path:
+    '/labs/jandr/walter/tb/data/refs/ppe_gagneux_0based_fmt.bed.gz'
+vcf_header:
+    '/labs/jandr/walter/tb/data/refs/ppe_hdr.txt'
+fastq_dir: 
+   '/labs/jandr/walter/tb/data/'
+scripts_dir: 
+   '/labs/jandr/walter/tb/mtb/workflow/scripts/'
+fastq1_suffix:
+    '_R1_001.fastq.gz'
+fastq2_suffix:  
+    '_R2_001.fastq.gz'

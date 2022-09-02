@@ -12,6 +12,7 @@ import pandas as pd
 #samples_df = pd.read_table('config/pgy.tsv',sep = ',').set_index(["sample","batch"],drop=False)
 #samples_df = pd.read_table('config/SU022.tsv',sep = ',').set_index(["sample","batch"],drop=False)
 #samples_df = pd.read_table('config/SU025.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+#samples_df = pd.read_table('config/SU027.tsv',sep = ',').set_index(["sample","batch"],drop=False)
 #samples_df = pd.read_table('config/tgen_samples.tsv',sep = ',').set_index(["sample","batch"],drop=False)
 samples_df = pd.read_table('config/tgen_samples2.tsv',sep = ',').set_index(["sample","batch"],drop=False)
 #samples_df = pd.read_table('config/tgen_samples3_nodups.tsv',sep = ',').set_index(["sample","batch"],drop=False)
@@ -44,9 +45,9 @@ rule all:
     #amr_stats=expand('results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_amr.csv', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names)),
     cov_stats=expand('results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_cov_stats.txt', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names)),
     #all_sample_stats=expand('results/{batch}/stats/combined_per_run_sample_stats.csv',batch = batch_names),
-    vcfs=expand('results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_{caller}_qfilt.vcf.gz', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names), caller = config['caller']*len(sample_names)),
+    vcfs=expand('results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_{caller}.vcf.gz', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names), caller = config['caller']*len(sample_names)),
     ann_vcfs=expand('results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_ann.vcf.gz', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names)),
-    fastas=expand('results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_{caller}_{filter}.fa', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names), caller = config['caller']*len(sample_names), filter=config['filter']*len(sample_names)),
+    fastas=expand('results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_{caller}.fa', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names), caller = config['caller']*len(sample_names), filter=config['filter']*len(sample_names)),
     profiles=expand('results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_lineageSpo.csv', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names)),
     quanttb=expand('results/{batch}/{samp}/stats/{samp}_quanttb.csv', zip, samp=sample_names,batch=batch_names)
 
@@ -149,7 +150,7 @@ rule per_samp_stats:
     all_stats = 'results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_all_stats.csv'
   log:
     'results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_cov_stats.log'
-  conda: 'mtb'
+  conda: 'picard'
   params:
     prefix='results/{batch}/{samp}/stats/{samp}'
   shell:    
@@ -215,14 +216,34 @@ rule gatk_call:
   params:
     ploidy='1'
   output: 
-    vcf=temp('results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk.vcf.gz')
+    vcf='results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk.vcf.gz'
   log:
     'results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk.log' 
   conda: 'mtb'
   shell: 
     "{config[scripts_dir]}call_vars_gatk.sh {input.ref_path} {input.combined_bam} {params.ploidy} {output.vcf} &>> {log}"
 
-# Annotate snps. Need bcftools here. 
+# Convert single sample VCF to fasta + filter PPE genes-updated. 
+rule vcf_to_fasta:
+  input: 
+    ref_path='/labs/jandr/walter/tb/data/refs/{ref}.fa',
+    unfilt_vcf='results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk.vcf.gz'
+  params:
+    sample_name = "{samp}",
+    bed=config['bed_path'],
+    depth=config['depth_filter'],
+    qual=config['qual_filter']
+  output:
+    fasta='results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_gatk.fa'
+  log: 
+   'results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_gatk.log'
+  conda: 'mtb'
+  shell:
+    '''
+    {config[scripts_dir]}vcf2fasta.sh {input.ref_path} {params.sample_name} {input.unfilt_vcf} {params.bed} {output.fasta} {params.depth} {params.qual}     
+	'''
+	    
+# Annotate VCF for variant examination.
 rule annotate_snps: 
   input:
     vcf='results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk.vcf.gz'
@@ -242,54 +263,31 @@ rule annotate_snps:
     zcat {input.vcf}| sed 's/NC_000962.3/Chromosome/g' | bgzip > {output.rename_vcf}
     tabix {output.rename_vcf}
 
-    # Run snpEff
-    java -jar -Xmx8g {config[snpeff]} eff {config[snpeff_db]} {output.rename_vcf} -dataDir {config[snpeff_datapath]} -noStats -no-downstream -no-upstream -canon > {output.tmp_vcf}
+    # Run snpEff and then rename Chromosome.
+    java -jar -Xmx8g {config[snpeff]} eff {config[snpeff_db]} {output.rename_vcf} -dataDir {config[snpeff_datapath]} -noStats -no-downstream -no-upstream -canon | sed 's/Chromosome/NC_000962.3/g' > {output.tmp_vcf}
 
-    # Also use bed file to annotate vcf and again rename chromosome
-    bcftools annotate -a {params.bed} -h {params.vcf_header} -c CHROM,FROM,TO,FORMAT/PPE {output.tmp_vcf} > {output.ann_vcf}
+    # Also use bed file to annotate vcf, zip.
+    bcftools annotate -a {params.bed} -h {params.vcf_header} -c CHROM,FROM,TO,FORMAT/PPE {output.tmp_vcf} | bgzip  > {output.ann_vcf}
 
     '''
-    
-# Hard filter variants.     
-rule hard_filter:
-  input:
-    ann_vcf='results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_ann.vcf.gz'
-  log: 
-    'results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_qfilt_stats.log'
-  output:
-    filt_vcf='results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_qfilt.vcf.gz'
-  conda: 'mtb'
-  shell:
-    '''
-    
-   # Filter + rename Chromosome.
-    bcftools filter -e "QUAL < {config[qual_filter]} || FORMAT/DP < {config[depth_filter]}" --set-GTs '.' {input.ann_vcf}  | sed 's/Chromosome/NC_000962.3/g' | bgzip > {output.filt_vcf}
 
-    # Index filtered VCF.
-    tabix -f -p vcf {output.filt_vcf}
-
-    # Print out stats to log file. 
-    bcftools stats {output.filt_vcf} &>> {log} 
-    
-   '''
- 
-# Convert single sample VCF to fasta + filter PPE genes. 
-rule vcf_to_fasta:
-  input: 
-    ref_path='/labs/jandr/walter/tb/data/refs/{ref}.fa',
-    filt_vcf='results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_qfilt.vcf.gz'
-  params:
-    sample_name = "{samp}",
-    bed=config['bed_path']
-  output:
-    fasta='results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_gatk_{filt}.fa'
-  log: 
-   'results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_gatk_{filt}.log'
-  conda: 'mtb'
-  shell:
-    '''
-    {config[scripts_dir]}vcf2fasta.sh {input.ref_path} {input.filt_vcf} {params.sample_name} {params.bed} {output.fasta}    
-	'''    
+# # Convert single sample VCF to fasta + filter PPE genes. 
+# rule vcf_to_fasta:
+#   input: 
+#     ref_path='/labs/jandr/walter/tb/data/refs/{ref}.fa',
+#     filt_vcf='results/{batch}/{samp}/vars/{samp}_{mapper}_{ref}_gatk_qfilt.vcf.gz'
+#   params:
+#     sample_name = "{samp}",
+#     bed=config['bed_path']
+#   output:
+#     fasta='results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_gatk_{filt}.fa'
+#   log: 
+#    'results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_gatk_{filt}.log'
+#   conda: 'mtb'
+#   shell:
+#     '''
+#     {config[scripts_dir]}vcf2fasta.sh {input.ref_path} {input.filt_vcf} {params.sample_name} {params.bed} {output.fasta}    
+# 	'''    
 
 # Print out if success
 onsuccess:

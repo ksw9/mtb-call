@@ -1,0 +1,10 @@
+sample,fastq_1,fastq_2,batch,run
+TB-T3.DNA.MTB-012969,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-012969_S226_R1_001.fastq.gz,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-012969_S226_R2_001.fastq.gz,IS-1000,Walter-TB
+TB-T3.DNA.MTB-012971,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-012971_S239_R1_001.fastq.gz,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-012971_S239_R2_001.fastq.gz,IS-1000,Walter-TB
+TB-T3.DNA.MTB-012974,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-012974_S236_R1_001.fastq.gz,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-012974_S236_R2_001.fastq.gz,IS-1000,Walter-TB
+TB-T3.DNA.MTB-012991,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-012991_S219_R1_001.fastq.gz,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-012991_S219_R2_001.fastq.gz,IS-1000,Walter-TB
+TB-T3.DNA.MTB-012993,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-012993_S235_R1_001.fastq.gz,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-012993_S235_R2_001.fastq.gz,IS-1000,Walter-TB
+TB-T3.DNA.MTB-012994,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-012994_S215_R1_001.fastq.gz,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-012994_S215_R2_001.fastq.gz,IS-1000,Walter-TB
+TB-T3.DNA.MTB-013005,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-013005_S232_R1_001.fastq.gz,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-013005_S232_R2_001.fastq.gz,IS-1000,Walter-TB
+TB-T3.DNA.MTB-013010,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-013010_S216_R1_001.fastq.gz,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-013010_S216_R2_001.fastq.gz,IS-1000,Walter-TB
+TB-T3.DNA.MTB-013013,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-013013_S9_R1_001.fastq.gz,/labs/jandr/walter/tb/data/IS-1000/Walter-TB/TB-T3.DNA.MTB-013013_S9_R2_001.fastq.gz,IS-1000,Walter-TB
