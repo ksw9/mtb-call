@@ -21,7 +21,12 @@
     },
             "gatk_call" :
     {
-        "time" : "1:00:00",
+        "time" : "5:00:00",
+        "memory": 200G
+    },
+            "trim_reads" :
+    {
+        "time" : "2:00:00",
         "memory": 100G
     }
 

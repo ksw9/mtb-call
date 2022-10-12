@@ -4,8 +4,8 @@ output: html_document
 ---
 For all Mtb processed by Snakemake, combine run statistics. 
 ```{r setup}
-root_dir = '/labs/jandr/walter/tb/mtb_tgen/'
-working_dir = paste('/labs/jandr/walter/tb/mtb_tgen/', sep = '')
+root_dir = '/labs/jandr/walter/tb/mtb/'
+working_dir = paste('/labs/jandr/walter/tb/mtb/', sep = '')
 knitr::opts_knit$set(root.dir = root_dir)
 getwd()
 
@@ -23,32 +23,49 @@ library(ggnewscale)
 library(pegas)
 ```
 
-```{r read in read files}
-# List files
-batches = list.files(working_dir)
-#read_files <- dir(path = paste(working_dir, batches[1], sep = '/'), glob2rx('*read_counts.txt'), full.names = TRUE, recursive = TRUE)
-reads_file <- 'working/read_counts_031822.txt'
-reads_df <- read_csv(reads_file) %>%
-  filter(!raw_reads == 'raw_reads') %>%
-  mutate(across(contains('reads'), as.numeric)) %>%
-  mutate(across(contains('bases'), as.numeric))
+```{r read in combined stats}
+setwd(working_dir)
+filename = 'working/combined_all_stats_090222.csv'
+#filename = 'working/combined_all_stats_hdr_090622.csv'
+df <- read_csv(filename) %>% filter(!str_starts(unclassified_per, 'unclassified')) %>% select(!sampl...43) %>%
+  filter(!batch == '10') # incorrect file from weiler set of seqs.
 
+df <- df %>% 
+  mutate(across(!sampl...1 & !sample & !batch & !fastq_1 & !sample & !refname, as.double))
+
+# Rename some of the batches
+unique(df$batch)
 df <- df %>%
-  filter(!str_ends(batch,'.gz'))
+  mutate(batch = case_when(batch %in% c( "Batch_2018-06-26", "Batch_2018-01-11") ~ 'IS-1045', TRUE ~ batch))
 
 ```
+```{r plot mean coverage by batch }
+df %>%
+  group_by(batch) %>%
+  ggplot(aes(x = batch, y = MEAN_COVERAGE)) + 
+    geom_bar(position = "dodge",
+           stat = "summary",
+           fun = "mean") + 
+  theme_classic() + xlab('Batch') + ylab('Mean coverage') + 
+  theme(axis.text.x = element_text(angle = 90))
 
+# 1800 sequences with > 40X mean coverage.
+df %>%
+  filter(MEAN_COVERAGE > 40)
+```
 ```{r plot reads lost at each step}
+df
 
 # Summarize reads lost at each step
 df %>%
   #rowid_to_column() %>% 
   #select(!contains('reads')) %>%
-  pivot_longer(cols = 4:9, names_to = 'type', values_to = 'reads') %>%
+  select(c(batch, 'raw_reads','trim_reads','kraken_reads', 'raw_bases','trim_bases','kraken_bases')) %>%
+  pivot_longer(cols = c('raw_reads','trim_reads','kraken_reads', 'raw_bases','trim_bases','kraken_bases'), names_to = 'type', values_to = 'reads') %>%
   mutate(type = factor(type, levels = c('raw_reads','trim_reads','kraken_reads', 'raw_bases','trim_bases','kraken_bases'))) %>%
   filter(str_detect(type,'bases')) %>%
   ggplot(aes(x = type, y = reads/1E6, color = type)) + 
-  facet_wrap(~batch) +
+  facet_wrap(~batch, scales = 'free_y') +
   stat_summary(fun.data = 'mean_cl_normal') + 
   theme_classic() + ylab('Mega basepairs' ) + 
   scale_color_npg() + 
@@ -56,6 +73,7 @@ df %>%
         axis.ticks.x=element_blank())
 
 genome_len=4.4E6
+
 # Summarize throughput for SU022
 df %>%
   filter(batch == 'SU022') %>%
@@ -123,6 +141,21 @@ stats_df <- stats_df %>% select(-c(fastq_1,batch,sample)) %>%
 stats_df
 write.csv(stats_df, paste(root_dir, 'combined_stats/stats_df.csv', sep = ''), row.names = FALSE)
 ```
+```{r read in read files}
+# List files
+batches = list.files(working_dir)
+#read_files <- dir(path = paste(working_dir, batches[1], sep = '/'), glob2rx('*read_counts.txt'), full.names = TRUE, recursive = TRUE)
+reads_file <- 'working/read_counts_031822.txt'
+reads_df <- read_csv(reads_file) %>%
+  filter(!raw_reads == 'raw_reads') %>%
+  mutate(across(contains('reads'), as.numeric)) %>%
+  mutate(across(contains('bases'), as.numeric))
+
+df <- df %>%
+  filter(!str_ends(batch,'.gz'))
+
+```
+
 
 
 

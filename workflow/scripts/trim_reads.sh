@@ -9,8 +9,6 @@
 # Read from command line: ref genome, fastq 1, fastq 2.
 p1=$1  # fastq 1
 p2=$2  # fast1 2
-outidr=$3 # output directory
-
 trim1=$3 # trimmed/adapter-removed fastq 1
 trim2=$4 # trimmed/adapter-removed fastq 2
 

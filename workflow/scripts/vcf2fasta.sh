@@ -24,6 +24,15 @@ tabix -p vcf $unfilt_vcf
 
 echo 'creating fasta files for ' $samp
 
+# Check that bcftools is correct version.
+bcftools_version=$(bcftools version | head -n1 | grep -Eo '[0-9.]+')
+  echo 'bcftools version:' "$bcftools_version"
+
+if [  "$bcftools_version" == 1.9 ] ; then 
+  echo 'Incorrect bcftools version'
+  exit
+fi
+
 # output 1: consensus with no masking (exclude indels).
 bcftools consensus --include 'TYPE!="indel"' --fasta-ref ${ref} \
   --sample ${samp} --absent 'N' --missing 'N' ${unfilt_vcf}  | \
@@ -37,6 +46,7 @@ bcftools consensus --include 'TYPE!="indel"' --mask ${bed} --fasta-ref ${ref} \
   sed "s/>NC_000962.3 Mycobacterium tuberculosis H37Rv, complete genome/>$sample_name/g" > ${ppe_masked_fasta}
     
 echo 'masking with' $bed
+
 # output 3: consensus with ppe masking and quality filters applied.
 # Include non-indels with depth >= threshold. For variant sites only (GT==1), filter on QUAL. (No QUAL score for invariant sites.)
 bcftools consensus --mask ${bed} --fasta-ref ${ref} \

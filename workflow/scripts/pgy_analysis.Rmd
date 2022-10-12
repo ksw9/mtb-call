@@ -32,7 +32,7 @@ library(infer)
 library(ggimage) # currently having issues.
 library(scatterpie)
 library(stringi)
-
+library(readxl)
 #save.image('/labs/jandr/walter/tb/pgy/pgy.RData')
 #load('/labs/jandr/walter/tb/pgy/pgy.RData')
 msa_dir = '/labs/jandr/walter/tb/pgy/msa/'
@@ -48,27 +48,46 @@ source('/labs/jandr/walter/tb/mtb/workflow/scripts/add_asc_correction_xml.R')
 stats_df <- read_csv('/labs/jandr/walter/tb/mtb/combined_stats/stats_df.csv')
 
 # Read in Paraguay specific metadata.
-meta_filename = '/labs/jandr/walter/tb/pgy/metadata/pgy_metadata_080822.csv'
+meta_filename = '/labs/jandr/walter/tb/pgy/metadata/pgy_metadata_080822.csv' # Use this for now--has correct location data
+#meta_filename = '/labs/jandr/walter/tb/pgy/metadata/pgy_metadata_092122.xlsx' # Uplodad updated metadata sheet with updated indication of indigenous population.
+
 pgy_df <- read_csv(meta_filename)
+table(pgy_df$etnia)
 pgy_df <- pgy_df %>% relocate(seq_name, samp,batch,path) %>%
   mutate(seq_name = case_when(!is.na(samp) ~ str_remove(samp, '_S.+'), 
-                                TRUE ~ seq_name))
+                                TRUE ~ seq_name), 
+         etnia = case_when(etnia %in% c("APLICA","Aplica") ~ 'Indigenous',
+                           TRUE ~ as.character(NA)))
 
-pgy_df <- pgy_df %>%
-  mutate(seq_name = case_when(seq_name == 'Calixto.Q' ~ 'CalixtoQ',
-                              seq_name == 'CR32.AV' ~ 'CR32AV',
-                              seq_name == 'CR419 (Jan19.21)' ~ 'CR419-Jan19-21',
-                              seq_name == 'CR419.Julio' ~ 'CR419Julio',
-                              seq_name == 'Fabio.S' ~ 'FabioS',
-                              seq_name == 'CR746.DamianS' ~ 'CR746DamianS',
-                              seq_name == 'CR447.Oavg' ~ 'CR447Oavg',
-                              seq_name == 'Gustavo.R' ~ 'GustavoR',
-                              seq_name == 'Jorge.G' ~ 'JorgeG',
-                              seq_name == 'Richard.G' ~ 'RichardG',
-                              seq_name == 'Wifrido.F' ~ 'WifridoF',
-                              seq_name == 'Zacarias.B' ~ 'ZacariasB', 
-                              seq_name == 'CR454' ~ 'TB-CPath-Croda-IS-1045-CR-454-a',
-                              TRUE ~ seq_name))
+# Look at coverage of samples from indigenous populations. 
+pgy_df %>%
+  #mutate_all(vars(MEDIAN_COVERAGE), as.numeric) %>%
+  filter(etnia %in% c('Indigenous')) %>%
+  dplyr::mutate(MEDIAN_COVERAGE = as.numeric(MEDIAN_COVERAGE)) %>%
+  ggplot(aes(x = MEDIAN_COVERAGE)) +
+  geom_histogram()
+
+pgy_df %>%
+  #mutate_all(vars(MEDIAN_COVERAGE), as.numeric) %>%
+  filter(etnia %in% c('APLICA','Aplica')) %>%
+  filter(MEDIAN_COVERAGE >= 50) %>%
+  pull(location) %>% table()
+
+# pgy_df <- pgy_df %>%
+#   mutate(seq_name = case_when(seq_name == 'Calixto.Q' ~ 'CalixtoQ',
+#                               seq_name == 'CR32.AV' ~ 'CR32AV',
+#                               seq_name == 'CR419 (Jan19.21)' ~ 'CR419-Jan19-21',
+#                               seq_name == 'CR419.Julio' ~ 'CR419Julio',
+#                               seq_name == 'Fabio.S' ~ 'FabioS',
+#                               seq_name == 'CR746.DamianS' ~ 'CR746DamianS',
+#                               seq_name == 'CR447.Oavg' ~ 'CR447Oavg',
+#                               seq_name == 'Gustavo.R' ~ 'GustavoR',
+#                               seq_name == 'Jorge.G' ~ 'JorgeG',
+#                               seq_name == 'Richard.G' ~ 'RichardG',
+#                               seq_name == 'Wifrido.F' ~ 'WifridoF',
+#                               seq_name == 'Zacarias.B' ~ 'ZacariasB', 
+#                               seq_name == 'CR454' ~ 'TB-CPath-Croda-IS-1045-CR-454-a',
+#                               TRUE ~ seq_name))
 
 # Look at samples not in the sequence database
 pgy_df[which(!pgy_df$seq_name %in% stats_df$sample),] %>% relocate(seq_name, samp,batch,path) # 5 not found: 2013,2063,CR319,CR333,CR335
@@ -125,13 +144,13 @@ pgy_df %>%
                   length(which(MEDIAN_COVERAGE >=25 & PCT_10X > .8)))
 
 # Write list of TB-profiler files to combine: 532 with median coverage >=25; 522 unique. These 522 unique are included
-pgy_df %>% 
-  filter(include == 1) %>% relocate(stats_filename) %>% #pull(identificationnumber) %>% unique() 482 unique identification numbers.
-  mutate(filename = str_replace(stats_filename,'stats', 'stats/results'), 
-         filename = str_replace(filename, '_bwa_H37Rv_all_stats.csv', '.results.json')) %>%
-  ungroup() %>%
-  select(filename) %>% filter(!file.exists(filename)) %>% # All exist.
-  write_csv('/labs/jandr/walter/tb/pgy/tb-profiler/tb-profiler.txt', col_names = FALSE)
+# pgy_df %>% 
+#   filter(include == 1) %>% relocate(stats_filename) %>% #pull(identificationnumber) %>% unique() 482 unique identification numbers.
+#   mutate(filename = str_replace(stats_filename,'stats', 'stats/results'), 
+#          filename = str_replace(filename, '_bwa_H37Rv_all_stats.csv', '.results.json')) %>%
+#   ungroup() %>%
+#   select(filename) %>% filter(!file.exists(filename)) %>% # All exist.
+#   write_csv('/labs/jandr/walter/tb/pgy/tb-profiler/tb-profiler.txt', col_names = FALSE)
 
 ```
 ```{r describe samples passing targets}
@@ -327,6 +346,10 @@ pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
 pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
   filter(location == 'Other city') %>% relocate(location,regioncode,regioncodespecified,establecimiento,prison, prison_name,inc_status)
   select(location,inc_status) %>% table()
+  
+pgy_df %>%
+  filter(include == 1 & mixed == 'Single') %>%
+  select(etnia) %>% table()
 ```
 ```{r, SRA upload, echo = FALSE}
 
@@ -376,12 +399,12 @@ biosample_pgy <- pgy_sra %>%
   select(sample_name, isolate, organism, strain, collected_by, collection_date, geo_loc_name, host, host_disease, isolation_source, lat_lon) 
 
 write_tsv(biosample_pgy, file = paste(meta_dir,'pgy_sra_data_081222.tsv', sep = ''))
-
+write_tsv(pgy_sra, file = paste(meta_dir,'pgy_full_sra_101122.tsv', sep = ''))
+            
 # SRA metadata
 sra_metadata_pgy <- pgy_sra %>%
-  select(sample_name, title, library_ID,library_strategy, library_source, library_selection, library_layout, platform, instrument_model, design_description, filetype, filename, filename2)
-
-write_tsv(sra_metadata_pgy, file = paste(meta_dir,'pgy_biosample_data_081222.tsv', sep = ''))
+  select(seq_name, sample_name, title, library_ID,library_strategy, library_source, library_selection, library_layout, platform, instrument_model, design_description, filetype, filename, filename2)
+write_tsv(sra_metadata_pgy, file = paste(meta_dir,'pgy_biosample_data_092822.tsv', sep = ''))
 
 # Get paths to renamed sequence files.
 paths_pgy <- pgy_sra %>%
@@ -399,16 +422,17 @@ write_tsv(rename_paths, file = paste(meta_dir,'file_dictionary.csv', sep = '/'))
 
 which(duplicated(paths_pgy$full_old_filename))
 
-### HERE ###
-# Get acession numbers of samples included in analysis.
-sra_spillover <-sra %>%
+# Get accession numbers of samples included in analysis.
+sra_spillover <- sra %>%
   filter(sample_name %in% names(f1))
 write.csv(sra_spillover, file = '~/Box/Box/TB/spillover/seq/sra/sra_accessions_spillover.csv', row.names = FALSE)
 
-# Write metadata for the Supplement.
-df_si <- df %>% filter(include == 1) %>%
-  dplyr::select(seq_name, sex, cidade, date, inc_status_combined)
-write.csv(df_si, file = '~/Box/Box/TB/spillover/seq/sra/sample_metadata.csv', row.names = FALSE)
+# Write metadata file that includes all attempted sequences (even if not included/duplicates) to include with seq data.
+pgy_df %>% 
+  left_join(paths_pgy %>% select(seq_name,batch, library_ID),
+            by = c('seq_name'='seq_name','batch'='batch')) %>%
+  write.csv(file = paste(meta_dir, 'pgy_meta_with_sra_101222.csv', sep = ''),row.names = FALSE)
+
 
 ```
 

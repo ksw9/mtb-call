@@ -12,8 +12,8 @@ PROCESS_DIR=/labs/jandr/walter/tb/mtb/
 SNPEFF_DIR=/labs/jandr/walter/tb/data/refs/snpEff/
 SCRIPTS_DIR=/labs/jandr/walter/tb/mtb/workflow/scripts/
 
-module add anaconda/3_2022.05
-module add IQ-TREE/2.2.0 
+#module add anaconda/3_2022.05
+#module add IQ-TREE/2.2.0 
 conda activate snakemake
 
 ## Push to github for full pipeline.
@@ -313,28 +313,28 @@ cat config/MT0{1,2,3,4}*.tsv | grep -v 'sample' >> ${sample_list}
 ######################
 # Run Snakemake on the cluster. 
 # Need to activate snakemake to run snakemake; 
+cd /labs/jandr/walter/tb/mtb
+module add anaconda/3_2022.05
 source activate snakemake
 
 today=$(date +"%Y-%m-%d") 
 
-# Test a single sample: --use-conda
-nohup snakemake -j 1 -k --cluster-config config/cluster_config.yaml --use-conda --cluster \
-"sbatch -A {cluster.account} --mem={cluster.memory} -t {cluster.time} --cpus-per-task {threads} --error {cluster.error} --output {cluster.output} " \
-results/IS-1018/T1-XX-2015-978/stats/T1-XX-2015-978_bwa_H37Rv_lineageSpo.csv > runs/snakemake_${today}.out & 
-
-# Test a single sample: --use-conda
-nohup snakemake -j 1 -k --cluster-config config/cluster_config.yaml --use-conda --cluster \
-"sbatch -A {cluster.account} --mem={cluster.memory} -t {cluster.time} --cpus-per-task {threads} --error {cluster.error} --output {cluster.output} " \
-results/SU025/L9642/fasta/L9642_bwa_H37Rv_gatk.fa > runs/snakemake_${today}.out & 
+# See what runs have not completed
+snakemake -np --rerun-triggers mtime 
 
 
 # Run all samples (that are listed in samples csv)
-nohup snakemake -j 500 -k --cluster-config config/cluster_config.yaml --use-conda --rerun-triggers mtime --cluster \
+nohup snakemake -j 500 -k --cluster-config config/cluster_config.yaml --use-conda --rerun-triggers mtime --rerun-incomplete --cluster \
 "sbatch -A {cluster.account} --mem={cluster.memory} -t {cluster.time} --cpus-per-task {threads} --error {cluster.error} --output {cluster.output} " \
 > runs/snakemake_${today}.out & 
 
+# Test a single sample: --use-conda (so that rule-specific conda environments are activated)
+nohup snakemake -j 1 -k --cluster-config config/cluster_config.yaml --use-conda --cluster \
+"sbatch -A {cluster.account} --mem={cluster.memory} -t {cluster.time} --cpus-per-task {threads} --error {cluster.error} --output {cluster.output} " \
+results/IS-1062/CR-98-HP-13-06-18-Py-DNA-MTB-009439/stats/CR-98-HP-13-06-18-Py-DNA-MTB-009439_bwa_H37Rv_combstats.csv > runs/snakemake_${today}.out & 
+
 # Error here: 
-snakemake  results/IS-1018/T1-105-2010-139/stats/T1-105-2010-139_bwa_H37Rv_combined_stats.csv --use-conda --cores all
+#snakemake  results/IS-1018/T1-105-2010-139/stats/T1-105-2010-139_bwa_H37Rv_combined_stats.csv --use-conda --cores all
 
 # CreateCondaEnvironmentException:
 # Could not create conda environment from /oak/stanford/scg/lab_jandr/walter/tb/mtb_tgen/workflow/envs/mtb.yaml:
@@ -355,7 +355,7 @@ workflow/envs/mtb.yaml
 #2. Try changing location according to this: https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#specifying-a-location-for-an-environment
 
 # Currently, the snakemake file points to existing conda environments, not the .yaml file. 
-
+conda env create -f envs/mtb.yaml # currently need to create the environments before running the pipeline. 
 
 # Improper masking
 
@@ -364,20 +364,77 @@ workflow/envs/mtb.yaml
 # Script to temporarily mask. Then go back to update and test Snakemake script.
 bedtools maskfasta -fi $fa -bed $bed -fo masked.fa
 
-
-
 #########################################
 #### Create 2022 sequence dictionary ####
 #########################################
+seq_list=working/seq_dictionary_1002022.csv
+
+# Create sequence dictionary with seq metadata about all files
+cat config/Stanford_MT01-04.tsv \
+  <(sed '1d' config/MT06-2022-03-04_withEnvCult.tsv ) \
+  <(sed '1d' config/pgy.tsv) \
+  <(sed '1d' config/SU022.tsv) \
+  <(sed '1d' config/SU025.tsv) \
+  <(sed '1d' config/SU027.tsv) \
+  <(sed '1d' config/tgen_samples.tsv) \
+  <(sed '1d' config/tgen_samples2.tsv) \
+  <(sed '1d' config/tgen_samples3_nodups.tsv) > ${seq_list} # 2739 isolates
+
+# Add allstats.csv files. Keep header only for the first file.  
+sed -e '2,${/^batch/d' -e '}' results/*/*/stats/*_bwa_H37Rv_allstats.csv >  working/allstats_100422.csv 
+sed -e '2,${/^batch/d' -e '}' results/*/*/stats/*_bwa_H37Rv_combstats.csv >  working/combstats_101022.csv  # Without quanttb (because quanttb has multiple lines for mixed samples)
+
+#########################################
+#### Collate all lineage information ####
+#########################################
+cd /labs/jandr/walter/tb/mtb
+source activate TBprofiler2
+
+# Copy all JSON files from tb-profiler to results directories; however some samples have duplicate names. Keep batch structure.  
+for bat in results/IS-1062/ ; 
+  do echo $bat 
+    batch_name=$(basename $bat)
+    mkdir working/tbprofile/${batch_name}
+    cp results/${batch_name}/*/stats/results/*json working/tbprofile/${batch_name}
+done
+
+# For each batch, collate tb-profiler information.
+for bat in working/tbprofile/IS-1062 ; do
+  batch_name=$(basename $bat)
+  echo $batch_name
+  tb-profiler collate --dir working/tbprofile/${batch_name} --prefix working/tbprofile_collate/${batch_name} \
+--all_variants --mark_missing 
+done
+
+# Combine all TB-profiler. Use only *txt output (not additional output files--moved to outputs dir)
+awk 'BEGIN{FS="\t"; OFS=FS} {print FILENAME,$0}' working/tbprofile_collate/* > working/tbprofiler_combined_100622.csv
+
+# For each batch, also combine quanttb results. 
+awk 'BEGIN{OFS=","} {print FILENAME,$0}' results/*/*/stats/*quanttb.csv > working/quanttb_combined_100622.csv
+
+
+# # File cleaning: 
+# # If sample directory has been incorrectly created, move to temp directory. (IS-1018 and IS-1045)
+# for samp in results/IS-1062/*; do 
+#   count=`ls -1 ${samp}/stats/*allstats.csv 2>/dev/null | wc -l `
+#   if [ $count == 0 ]
+#   then 
+#   echo "File does not exist" $samp
+#   mv $samp tmp3/
+#   fi 
+# done | wc -l
+
+
+
 
 # Output list of files in same format as previous sequence dictionary.827 new sequences.
 dir=data
 seq_date=2022
 country=both
-new_seq_list=metadata/seq_dictionary_2022.csv
+new_seq_list=metadata/seq_dictionary_1002022.csv
 echo 'path,dir','batch','seq_date','samp','strain','seq_name','record_id','country'> ${new_seq_list}
 
-for batch_name in data/{MT02,MT03,MT04,MT06,SU022,SU025}*/; do
+for batch_name in data/{MT02,MT03,MT04,MT06,SU022,SU025,SU027}*/; do
   batch=$(basename $batch_name)
   echo ${batch}
   for path in ${batch_name}*R1_001.fastq.gz; do 
@@ -414,20 +471,37 @@ done >> ${new_seq_list}
 rclone copy ${new_seq_list} box:Box/TB/spillover/paraguay/metadata/
 rclone copy ${new_seq_list} box:Box/TB/spillover/metadata/dna/
 
-#########################################
-#### Collate all lineage information ####
-#########################################
-
-# Copy all JSON files from tb-profiler to common directory. 
-
-cp results/*/stats/results/*json results/stats/results/
-cd results/stats/
-tb-profiler collate 
 
 #########################################
 #### Collate all stats information ####
 #########################################
-cat results/*/*/stats/*_bwa_H37Rv_all_stats.csv > working/combined_all_stats_0522.csv
+tail -n1 -q results/*/*/stats/*_bwa_H37Rv_all_stats.csv > working/combined_all_stats_090622.csv
+
+cat <(head -n1 results/IS-1018/T1-XX-2015-978/stats/T1-XX-2015-978_bwa_H37Rv_all_stats.csv) working/combined_all_stats_090622.csv > working/combined_all_stats_hdr_090622.csv
+ 
+ 
+cat results/*/*/stats/*_bwa_H37Rv_cov_stats.txt > working/combined_cov_stats_090222.csv
+cat results/*/*/stats/*_read_counts.csv > working/combined_cov_stats_090222.csv
+
+# Loop over samples and get reads output.
+for bat in $(ls -d /labs/jandr/walter/tb/mtb/results/* ); do 
+  for samp in $(ls ${bat}); do 
+    echo $samp
+    bat_name=$(basename $bat)
+    sbatch -A jandr -t 5 ${SCRIPTS_DIR}reads_output.sh ${samp} ${bat_name}
+  done
+done
+    paste <(sed -n '7,8'p $cov_stats )
+    
+    
+     > {output.combined_stats}
+    
+    # Combine with reads output
+    paste  -d ',' <( cat {output.combined_stats} | tr "\\t" "," ) {input.reads_stats} > {output.all_stats}
+
+cov # doesn't include the sample name!
+
+
 
 #########################################
 #### Where does loss of reads occur? ####
@@ -448,7 +522,7 @@ for bat in $(ls -d /labs/jandr/walter/tb/mtb_tgen/results/* ); do
   done
 done
 
-# Update Snakemake file to include this step
+# Update Snakemake file to include this step -done.
 
 # Add step to combine all Snakemake outputs into a single file. 
 
@@ -492,3 +566,14 @@ echo -e '##FORMAT=<ID=PPE,Number=1,Type=String,Description="Located within PE/PP
 # Chromosome	ena	gene	33582	33794	.	+	.	ID=gene:Rv0031;biotype=protein_coding;description=Possible remnant of a transposase;gene_id=Rv0031;logic_name=ena
 # Chromosome	ena	mRNA	33582	33794	.	+	.	ID=transcript:CCP42753;Parent=gene:Rv0031;biotype=protein_coding;transcript_id=CCP42753
 #     
+
+#### Testing ####
+ 
+## Look for character occurrence in file
+grep -v '>' results/IS-1000/TB-T3.DNA.MTB-016583/fasta/TB-T3.DNA.MTB-016583_bwa_H37Rv_gatk.fa | sed -e 's/\n//g' | grep -m1 -b -o "*"
+
+
+########################
+#### Install MtbSeq ####
+########################
+
