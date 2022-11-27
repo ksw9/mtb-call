@@ -12,7 +12,7 @@ filt2=$4
 report=$5
 
 # name outputs
-prefix=$(basename ${p1/_trim_1.*})
+prefix=$(basename ${p1/_val*})
 LOGDIR=$(dirname $report)/
 
 # run kraken to taxonomically classify paired-end reads and write output file.
@@ -22,8 +22,8 @@ kraken2 --db ${DBNAME} --paired --gzip-compressed --threads 8 --report ${report}
 
 grep -E 'Mycobacterium \(taxid 1763\)|Mycobacterium tuberculosis' ${LOGDIR}${prefix}.out | awk '{print $2}' > ${LOGDIR}${prefix}_reads.list
 
-# use bbmap to select reads corresponding to taxa of interest.
-filterbyname.sh  int=false in1=${p1} in2=${p2} out1=${filt1} out2=${filt2} names=${LOGDIR}${prefix}_reads.list include=true overwrite=true
+# use bbmap to select reads corresponding to taxa of interest. Allow the list of read names to be a substring of the full name (simulated reads may include /1 and /2 at the end of read name to indicate read pair.)
+filterbyname.sh int=false in=${p1} in2=${p2} out=${filt1} out2=${filt2} names=${LOGDIR}${prefix}_reads.list include=true overwrite=true substring=name 
 
 # Replace bbmap with grep to filter reads according to read names.
 #xzgrep -A3 -f ${LOGDIR}${prefix}_reads.list $p1 > ${filt1}

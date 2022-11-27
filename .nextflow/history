@@ -1,0 +1,1 @@
+2022-02-23 11:19:40	-	exotic_yonath	-	fbcb2ce94c9abded00d9fcb5181daa17b9ecd55e	a593f2ae-7753-4f1a-973d-2c2180c5f4c8	nextflow run nf-core/viralrecon -r 2.4 test

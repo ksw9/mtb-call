@@ -11,7 +11,14 @@ depth_filter:
     ['5']
 qual_filter:
     ['30'] 
+fastq1_suffix:
+    '_R1_001.fastq.gz'
+fastq2_suffix:  
+    '_R2_001.fastq.gz'
+
 ## Locations ##
+file_list:
+    'config/test_data.tsv'
 ref_dir:
     '/labs/jandr/walter/tb/data/refs/'
 snpeff:
@@ -28,7 +35,3 @@ fastq_dir:
    '/labs/jandr/walter/tb/data/'
 scripts_dir: 
    '/labs/jandr/walter/tb/mtb/workflow/scripts/'
-fastq1_suffix:
-    '_R1_001.fastq.gz'
-fastq2_suffix:  
-    '_R2_001.fastq.gz'

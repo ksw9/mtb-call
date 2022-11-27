@@ -1,0 +1,46 @@
+Feb-23 11:19:32.850 [main] DEBUG nextflow.cli.Launcher - $> nextflow run nf-core/viralrecon -r 2.4 test
+Feb-23 11:19:33.041 [main] INFO  nextflow.cli.CmdRun - N E X T F L O W  ~  version 21.10.6
+Feb-23 11:19:35.252 [main] DEBUG nextflow.scm.AssetManager - Git config: /home/kwalter/.nextflow/assets/nf-core/viralrecon/.git/config; branch: master; remote: origin; url: https://github.com/nf-core/viralrecon.git
+Feb-23 11:19:35.272 [main] DEBUG nextflow.scm.AssetManager - Git config: /home/kwalter/.nextflow/assets/nf-core/viralrecon/.git/config; branch: master; remote: origin; url: https://github.com/nf-core/viralrecon.git
+Feb-23 11:19:36.798 [main] INFO  nextflow.cli.CmdRun - Launching `nf-core/viralrecon` [exotic_yonath] - revision: fbcb2ce94c [2.4]
+Feb-23 11:19:37.580 [main] DEBUG nextflow.config.ConfigBuilder - Found config base: /home/kwalter/.nextflow/assets/nf-core/viralrecon/nextflow.config
+Feb-23 11:19:37.586 [main] DEBUG nextflow.config.ConfigBuilder - Parsing config file: /home/kwalter/.nextflow/assets/nf-core/viralrecon/nextflow.config
+Feb-23 11:19:37.598 [main] DEBUG nextflow.config.ConfigBuilder - Applying config profile: `standard`
+Feb-23 11:19:38.438 [main] DEBUG nextflow.plugin.PluginsFacade - Using Default plugins manager
+Feb-23 11:19:38.482 [main] INFO  org.pf4j.DefaultPluginStatusProvider - Enabled plugins: []
+Feb-23 11:19:38.484 [main] INFO  org.pf4j.DefaultPluginStatusProvider - Disabled plugins: []
+Feb-23 11:19:38.502 [main] INFO  org.pf4j.DefaultPluginManager - PF4J version 3.4.1 in 'deployment' mode
+Feb-23 11:19:38.511 [main] DEBUG nextflow.plugin.PluginsFacade - Using Default plugins manager
+Feb-23 11:19:39.017 [main] DEBUG nextflow.plugin.PluginsFacade - Using Default plugins manager
+Feb-23 11:19:39.017 [main] DEBUG nextflow.plugin.PluginsFacade - Using Default plugins manager
+Feb-23 11:19:39.259 [main] DEBUG nextflow.plugin.PluginsFacade - Using Default plugins manager
+Feb-23 11:19:39.260 [main] DEBUG nextflow.plugin.PluginsFacade - Using Default plugins manager
+Feb-23 11:19:39.835 [main] DEBUG nextflow.plugin.PluginsFacade - Setting up plugin manager > mode=prod; plugins-dir=/home/kwalter/.nextflow/plugins
+Feb-23 11:19:39.838 [main] DEBUG nextflow.plugin.PluginsFacade - Plugins default=[]
+Feb-23 11:19:39.853 [main] INFO  org.pf4j.DefaultPluginStatusProvider - Enabled plugins: []
+Feb-23 11:19:39.854 [main] INFO  org.pf4j.DefaultPluginStatusProvider - Disabled plugins: []
+Feb-23 11:19:39.857 [main] INFO  org.pf4j.DefaultPluginManager - PF4J version 3.4.1 in 'deployment' mode
+Feb-23 11:19:39.879 [main] INFO  org.pf4j.AbstractPluginManager - No plugins
+Feb-23 11:19:40.005 [main] DEBUG nextflow.Session - Session uuid: a593f2ae-7753-4f1a-973d-2c2180c5f4c8
+Feb-23 11:19:40.006 [main] DEBUG nextflow.Session - Run name: exotic_yonath
+Feb-23 11:19:40.007 [main] DEBUG nextflow.Session - Executor pool size: 2
+Feb-23 11:19:40.057 [main] DEBUG nextflow.cli.CmdRun - 
+  Version: 21.10.6 build 5660
+  Created: 21-12-2021 16:55 UTC (08:55 PDT)
+  System: Linux 3.10.0-1160.53.1.el7.x86_64
+  Runtime: Groovy 3.0.9 on OpenJDK 64-Bit Server VM 11.0.8-internal+0-adhoc..src
+  Encoding: UTF-8 (UTF-8)
+  Process: 41258@smsh11dsu-srcf-d15-38.scg.stanford.edu [10.210.12.9]
+  CPUs: 2 - Mem: 503.8 GB (357 GB) - Swap: 1.8 TB (1.8 TB)
+Feb-23 11:19:40.339 [main] DEBUG nextflow.Session - Work-dir: /oak/stanford/scg/lab_jandr/walter/tb/mtb_tgen/work [lustre]
+Feb-23 11:19:40.360 [main] DEBUG nextflow.executor.ExecutorFactory - Extension executors providers=[]
+Feb-23 11:19:40.377 [main] DEBUG nextflow.Session - Observer factory: DefaultObserverFactory
+Feb-23 11:19:40.946 [main] DEBUG nextflow.util.CustomThreadPool - Creating default thread pool > poolSize: 3; maxThreads: 1000
+Feb-23 11:19:41.305 [main] DEBUG nextflow.Session - Session start invoked
+Feb-23 11:19:41.310 [main] DEBUG nextflow.trace.TraceFileObserver - Flow starting -- trace file: /oak/stanford/scg/lab_jandr/walter/tb/mtb_tgen/null/pipeline_info/execution_trace_2022-02-23_11-19-39.txt
+Feb-23 11:19:41.345 [main] DEBUG nextflow.Session - Using default localLib path: /home/kwalter/.nextflow/assets/nf-core/viralrecon/lib
+Feb-23 11:19:41.351 [main] DEBUG nextflow.Session - Adding to the classpath library: /home/kwalter/.nextflow/assets/nf-core/viralrecon/lib
+Feb-23 11:19:41.352 [main] DEBUG nextflow.Session - Adding to the classpath library: /home/kwalter/.nextflow/assets/nf-core/viralrecon/lib/nfcore_external_java_deps.jar
+Feb-23 11:19:44.092 [main] DEBUG nextflow.script.ScriptRunner - > Launching execution
+Feb-23 11:19:44.709 [main] ERROR nextflow.Nextflow - ERROR: Validation of pipeline parameters failed!
+Feb-23 11:19:44.722 [main] ERROR nextflow.Nextflow - * Missing required parameter: --outdir

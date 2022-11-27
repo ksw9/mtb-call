@@ -17,9 +17,9 @@ SCRIPTS_DIR=/labs/jandr/walter/tb/mtb/workflow/scripts/
 conda activate snakemake
 
 ## Push to github for full pipeline.
-git add -A 
+git add ... specify scripts
 git commit -m 'adding scripts'
-git push -u origin master
+git push 
 
 ######################################
 #### Download data from BaseSpace ####
@@ -238,9 +238,6 @@ done
 
 #  514_S14_L001_R2_001.fastq.gz  is missing an R1 file. (pgy/weiler)
 # corrida2309/D_S16_L001_R1_001.fastq.gz is truncated. 
-# Processing 143 smaples. 
-
-# Get list of other pgy files with batch. 
 
 # Move 'corrida1509' samples tmp - these are duplicates of the Google Drive file (pgy1)
 mv pgy/corrida1509/* pgy/corrida1509/tmp/
@@ -248,10 +245,43 @@ mv pgy/corrida1509/* pgy/corrida1509/tmp/
 # Move Google drive files to corrida1509
 mv pgy/pgy1/* pgy/corrida1509/
 
+
+#####################
+#### Validation ####
+####################
+cd /labs/jandr/walter/tb/mtb
+DATA_DIR=/labs/jandr/walter/varcal/single/
+
+# Which sample doesn't have paired end read? 
+
+# Performance files
+sample_list=config/perform.tsv # 147 samples total including both weiler directories.
+echo 'sample,fastq_1,fastq_2','batch','run'> ${sample_list}
+
+for file in ${DATA_DIR}CDC1551_clean_{1..20}/data/*_1.fq.gz; do
+  fq1=${file}
+  fq2=${file/_1.fq.gz/_2.fq.gz}
+  
+  # Only include if fq2 exists.
+	if [ -f "$fq2" ]
+	then
+	  samp=$(basename $file)
+	  samp=${samp/_1.fq.gz}
+   	  dir=$(dirname $file)
+   	  runname=perform # Use runname so that no run-sample is repeated. 
+   	  bat=$(dirname $(echo ${dir/"${DATA_DIR}"}))
+   	#bat=$run
+  	  echo ${samp},${fq1},${fq2},${runname},${runname} >> ${sample_list}
+	else
+	  echo "${fq2} doesn't exist"
+	fi
+done
+
+
 ###############################
 #### Process Stanford runs ####
 ###############################
-cd /labs/jandr/walter/tb/mtb_tgen
+cd /labs/jandr/walter/tb/mtb
 DATA_DIR=/labs/jandr/walter/tb/data/
 
 # List samples
@@ -322,7 +352,6 @@ today=$(date +"%Y-%m-%d")
 # See what runs have not completed
 snakemake -np --rerun-triggers mtime 
 
-
 # Run all samples (that are listed in samples csv)
 nohup snakemake -j 500 -k --cluster-config config/cluster_config.yaml --use-conda --rerun-triggers mtime --rerun-incomplete --cluster \
 "sbatch -A {cluster.account} --mem={cluster.memory} -t {cluster.time} --cpus-per-task {threads} --error {cluster.error} --output {cluster.output} " \
@@ -331,7 +360,11 @@ nohup snakemake -j 500 -k --cluster-config config/cluster_config.yaml --use-cond
 # Test a single sample: --use-conda (so that rule-specific conda environments are activated)
 nohup snakemake -j 1 -k --cluster-config config/cluster_config.yaml --use-conda --cluster \
 "sbatch -A {cluster.account} --mem={cluster.memory} -t {cluster.time} --cpus-per-task {threads} --error {cluster.error} --output {cluster.output} " \
-results/IS-1062/CR-98-HP-13-06-18-Py-DNA-MTB-009439/stats/CR-98-HP-13-06-18-Py-DNA-MTB-009439_bwa_H37Rv_combstats.csv > runs/snakemake_${today}.out & 
+results/perform/CDC1551_clean_1/kraken/CDC1551_clean_1_kr_1.fq.gz > runs/snakemake_${today}.out & 
+
+# STUCK WITH BBMAP STEP in run_kraken.sh #### HERE ####
+filterbyname.sh in=$p1 out=test.fq names=AE000516.2-2935798/1  include=true overwrite=true substring=f, ths=t
+filterbyname.sh in=$p1 out=test.fq names=${LOGDIR}${prefix}_reads.list include=true overwrite=true substring=t tws=t
 
 # Error here: 
 #snakemake  results/IS-1018/T1-105-2010-139/stats/T1-105-2010-139_bwa_H37Rv_combined_stats.csv --use-conda --cores all
@@ -573,7 +606,19 @@ echo -e '##FORMAT=<ID=PPE,Number=1,Type=String,Description="Located within PE/PP
 grep -v '>' results/IS-1000/TB-T3.DNA.MTB-016583/fasta/TB-T3.DNA.MTB-016583_bwa_H37Rv_gatk.fa | sed -e 's/\n//g' | grep -m1 -b -o "*"
 
 
+#############################
+#### Performance testing ####
+#############################
+
+
 ########################
 #### Install MtbSeq ####
 ########################
+module add anaconda/3_2022.05
+# https://github.com/ngs-fzb/MTBseq_source
+mamba create -n mtbseq -c bioconda mtbseq
+conda activate mtbseq
+
+gatk3-register repos/GenomeAnalysisTK-3.8-0-ge9d806836.tar.bz2 
+
 

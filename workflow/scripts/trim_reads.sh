@@ -2,7 +2,6 @@
 # Trim paired-end fastq files for mapping. Script takes two paired-end FASTQ files, trim adapters with TrimGalore and remove the NextSeq poly-G runs with cutadapt.
 # Not used
 
-
 # set up environment
 #source activate snakemake
 
@@ -11,6 +10,7 @@ p1=$1  # fastq 1
 p2=$2  # fast1 2
 trim1=$3 # trimmed/adapter-removed fastq 1
 trim2=$4 # trimmed/adapter-removed fastq 2
+platform=${5:-miseq}
 
 # Quit if trimmed files already exist
 {
@@ -26,7 +26,7 @@ fi
 # 
 # # Make temp directory for intermediate files. 
 # mkdir -p $(dirname $p1)/tmp
-# TMP_DIR=$(dirname $p1)/tmp/
+TMP_DIR=/tmp/
 # 
 # # Name temporary files.
 # tmp1=${TMP_DIR}$(basename ${p1/.fastq.gz/_val_1.fq.gz})

@@ -289,7 +289,9 @@ pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
 
 # Look at association between sub-lineage and city. 
 pgy_df %>%
-  filter(include == 1 & mixed == 'Single') %>%
+  filter(include == 1 & mixed == 'Single') %>% #select(sub_lineage1, location) %>% table()
+  # Look at only dominant sublineages for association
+  filter(sub_lineage1 %in% c('lineage4.1.2.1','lineage4.3.3','lineage4.4.1.1')) %>%
   chisq_test(sub_lineage ~ location)
 
 # Proportions of sub-lineages by city. 
@@ -315,17 +317,23 @@ pgy_df %>% filter(include == 1 & mixed == 'Single') %>%  filter(DR_type == 'Drug
 
 # Look at association between sub-lineage and inc_status. 
 pgy_df %>%
-  mutate(ever_inc = case_when(inc_status == 'Community' ~ 'Community', TRUE ~ 'Inc')) %>%
+  mutate(ever_inc = case_when(inc_status == 'Never incarcerated' ~ 'Community', TRUE ~ 'Inc')) %>%
   filter(include == 1 & mixed == 'Single') %>%
-  chisq_test(sub_lineage ~ ever_inc)
+  select(sub_lineage, ever_inc) %>% table() %>% prop.table()
+  chisq_test(sub_lineage ~ inc_status) 
 
 # Proportions of sub-lineages by inc_status
-pgy_df %>%
-  filter(include == 1 & mixed == 'Single') %>%
-  mutate(ever_inc = case_when(inc_status == 'Community' ~ 'Community', TRUE ~ 'Inc')) %>%
+prop_df <- pgy_df %>%
+  filter(include == 1 & mixed == 'Single') %>% 
+  mutate(ever_inc = case_when(inc_status == 'Never incarcerated' ~ 'Community', TRUE ~ 'Inc')) %>%
   group_by(ever_inc,sub_lineage1) %>% 
   dplyr::summarize(n=n())%>%
   mutate(total = sum(n),prop=n/sum(n)) %>%
+  filter(sub_lineage1 %in% c('lineage4.1.2.1','lineage4.3.3','lineage4.3.4.2')) %>%
+  pivot_wider(names_from = ever_inc, values_from = c(n,total,prop))
+prop_df %>% ungroup() %>% rowwise() %>%
+  mutate(p_value = prop.test(x = c(n_Community,n_Inc), n = c(total_Community,total_Inc))$p.value)
+
   mutate(across(where(is.numeric), round, 3)) %>%
   filter(total > 10) %>%
   arrange(ever_inc,-prop)
@@ -349,7 +357,9 @@ pgy_df %>% filter(include == 1 & mixed == 'Single') %>%
   
 pgy_df %>%
   filter(include == 1 & mixed == 'Single') %>%
-  select(etnia) %>% table()
+  mutate(inc_at_notif = case_when(inc_status %in% c('Formerly incarcerated','Never incarcerated') ~ 'Community', 
+                                  TRUE ~ 'Incarcerated')) %>%
+  select(inc_at_notif, location) %>% table() 
 ```
 ```{r, SRA upload, echo = FALSE}
 
@@ -621,7 +631,7 @@ f_filt <- read.dna(snps_fasta_filt,format = 'fasta') # To get the characters, us
 # Examine nucleotide composition of msa
 f_nucs_filt <- read.dna(snps_fasta_filt,format = 'fasta', as.character = TRUE) # to input matrix, use, as.matrix = TRUE. (Format will not be DNAbin)
 nucs_filt = t(apply(f_nucs_filt, MARGIN = 1, FUN = table))
-nucs_filt <- as.data.frame(nucs_filt) %>%rownames_to_column(var = 'seq_name') %>% mutate(seq_name = str_remove(seq_name, "1$"))
+nucs_filt <- as.data.frame(nucs_filt) %>% rownames_to_column(var = 'seq_name') %>% mutate(seq_name = str_remove(seq_name, "1$"))
 
 # Mean # Ns
 mean(nucs_filt$n) # 869
@@ -2219,4 +2229,144 @@ fit <- skygrowth.map(dtr4)
  , tau0 = .1    # Smoothing parameter. If prior is not specified, this will also set the scale of the prior
 )
 
+```
+```{r convergence analysis}
+library(hogwash)
+
+# Set up inputs
+# Phylogenetic tree: 
+tree_file = '/labs/jandr/walter/tb/pgy/msa/iqtree/pgy_single_masked_bs.treefile'
+
+# Read tree file
+t_bs = treeio::read.tree(tree_file) 
+t_bs_rooted <- ape::root(t_bs, outgroup = lin_4.8, resolve.root = TRUE)
+is.rooted(t_bs_rooted)
+
+# Set 0 edge-lengths to tolerance level. 
+t_bs_rooted$edge.length[which(t_bs_rooted$edge.length==0)] <- 9e-7
+
+# Genotype: binary 0/1
+# Try this from treeWAS
+dna <- read.dna(file = snps_fasta_filt, format = "fasta")
+
+## Convert: 
+mat <- DNAbin2genind(dna)@tab
+mat
+
+# Binary snps only
+mat_binary = get.binary.snps(mat)
+
+# Examine nucleotide composition of msa
+f_nucs_filt <- read.dna(snps_fasta_filt,format = 'fasta', as.character = TRUE, as.matrix = TRUE) # to input matrix, use, as.matrix = TRUE. (Format will not be DNAbin)
+
+# Same order as tree tips. 
+f_nucs_filt <- f_nucs_filt[t_bs_rooted$tip.label,]
+rownames(f_nucs_filt) == t_bs_rooted$tip.label
+
+# Identify columns that are not bi-allelic (don't count n as an allele)
+allele_counts = f_nucs_filt %>% as_tibble() %>% 
+  summarise(across(everything(), ~length(setdiff(c(.x),'n')) ))
+not_biallelic = which(allele_counts >2)
+
+# Remove SNPs that are not bi-allelic.
+f_nucs_biallelic = f_nucs_filt[,-c(not_biallelic)]
+
+# Identify sites with no missing data
+n_counts = f_nucs_biallelic %>% as_tibble() %>% 
+  summarise(across(everything(), ~length(which(.x == 'n')) ))
+no_missing = which(n_counts == 0)
+length(no_missing)
+
+# Make binary genotype matrix
+f_binary = f_nucs_biallelic  %>% as_tibble(rownames = 'sample') %>% 
+  mutate(across(!sample,~ factor(str_replace(.x, pattern = 'n', replacement = as.character(NA)), labels = c(0,1)))) %>% column_to_rownames('sample') %>%
+  mutate(across(everything(), ~ as.numeric(as.character(.x)))) %>% # Convert to numeric
+  as.matrix()
+
+# Temporary A: set NAs to dominant genotype.
+f_binary_no_missing = f_nucs_biallelic  %>% as_tibble(rownames = 'sample') %>% 
+  mutate(across(!sample,~ factor(str_replace(.x, pattern = 'n', replacement = as.character(NA)), labels = c(0,1)))) %>% column_to_rownames('sample') %>%
+  mutate(across(everything(),~ replace_na(.x, names(sort(table(.x))[2])))) %>% # Replace NAs with the most common genotype in a column
+  mutate(across(everything(), ~ as.numeric(as.character(.x)))) %>% # Convert to numeric
+  as.matrix()
+
+# Temporary B: select only columns that have no missing data. 
+f_binary_no_missing_B = f_binary[,no_missing]
+
+# Confirm that genotype row names match tree tip labels:
+rownames(f_binary) == t_bs_rooted$tip.label
+
+# Convert to numeric matrix
+str(f_binary)
+
+# Phenotype: binary (within dominant cluster or not; then try within cluster or not)
+phenotype <- df_clusters %>%
+  group_by(cluster12) %>%
+  mutate(n = n()) %>%
+  arrange(n) %>%
+  mutate(phenotype_large_cluster = case_when(n >=20 ~ 1, 
+                                             TRUE ~ 0),
+         phenotype_any_cluster = case_when(n>=2 ~ 1, 
+                                           TRUE ~ 0)) %>%
+  ungroup() %>%
+  select(sample, phenotype_any_cluster)
+
+# Sort in order of tree tip labels. Define 'large cluster' phenotype as 1, else 0. 
+phenotype <- phenotype %>% arrange(factor(sample, levels = t_bs_rooted$tip.label)) %>%
+  ungroup() %>%
+  select(sample, phenotype_any_cluster) %>%
+  deframe()
+
+# Confirm that phenotype row names match tree tip labels:
+names(phenotype) == t_bs_rooted$tip.label
+
+# Also try grouped genotypes.
+
+# Can this currently accept NAs for genotype and/or phenotype? 
+
+
+# Run hogwash, output to plot directory. 
+hogwash(pheno = phenotype, 
+        geno = f_binary_no_missing[,1:50],  
+        tree = t_bs_rooted, 
+        test = "both", 
+        dir = plot_dir)
+
+# Errors here when using the dataframe with Nas removed: when using the f_binary_no_missing fasta, error: There are no genotypes left to test. 
+# no genotypes with at least 2 high confidence genotype transition edges
+
+# Error when setting NAs to the most dominant genotype. 
+# Error in colnames(reconstruction$lik.anc)[apply(reconstruction$lik.anc,  : 
+#   invalid subscript type 'list'
+  
+  
+# First issue: 
+# Error in get_dropped_genotypes(geno, geno_to_keep) : 
+#   
+```
+
+```{r run treeWAS }
+
+library(treeWAS)
+#unloadNamespace("adegenet")
+
+## Check that labels are present:
+is.null(t_bs_rooted$tip.label)
+is.null(rownames(mat_binary))
+is.null(names(phenotype))
+
+## Cross-check labels with each other:
+all(t_bs_rooted$tip.label %in% rownames(mat_binary))
+all(rownames(mat_binary) %in% t_bs_rooted$tip.label)
+all(t_bs_rooted$tip.label %in% names(phenotype))
+all(names(phenotype) %in% t_bs_rooted$tip.label)
+all(names(phenotype) %in% rownames(mat_binary))
+all(rownames(mat_binary) %in% names(phenotype))
+
+# Run treewas
+out <- treeWAS(snps = mat_binary,
+                phen = phenotype,
+                tree =  t_bs_rooted, 
+                seed = 1)
+out
 ```

@@ -1,0 +1,186 @@
+---
+title: "Mtb pipeline performance"
+output: html_document
+date: '2022-10-24'
+---
+
+```{r setup, include=FALSE}
+setwd('/labs/jandr/walter/tb/mtb/')
+library(ape)
+library(vcfR)
+library(tidyverse)
+library(fs)
+library(vtable)
+#save.image('/labs/jandr/walter/tb/mtb/working/performance/mtb_pipeline_performance.RData')
+load('/labs/jandr/walter/tb/mtb/working/performance/mtb_pipeline_performance.RData')
+```
+
+```{r pairwise distances}
+combined_fasta='/labs/jandr/walter/tb/mtb/working/performance/fastas/CDC1551_bwa_H37Rv_gatk.fa'
+f = read.FASTA(combined_fasta,type = 'DNA')
+d = dist.dna(f, 'N', as.matrix = TRUE)
+d
+
+combined_fasta2='/labs/jandr/walter/tb/mtb/working/performance/fastas/CDC1551_bwa_H37Rv_gatk_PPEmask.fa'
+f2 = read.FASTA(combined_fasta2,type = 'DNA')
+d2 = dist.dna(f2, 'N', as.matrix = TRUE) # PPE masking alone did not seem to work correctly. 
+d2
+
+combined_fasta3='/labs/jandr/walter/tb/mtb/working/performance/fastas/CDC1551_bwa_H37Rv_gatk_qPPEmask.fa'
+f3 = read.FASTA(combined_fasta3,type = 'DNA')
+d3 = dist.dna(f3, 'N', as.matrix = TRUE)
+d3
+
+```
+
+```{r read in truth and query VCF files}
+depth_filter = 5
+quality_filter = 30
+
+# Query vcf 
+query_vcf = '/labs/jandr/walter/tb/mtb/working/performance/test.vcf.gz'
+
+# Try full vcf
+#query_vcf = '/labs/jandr/walter/tb/mtb/results/perform/CDC1551_clean_1/vars/CDC1551_clean_1_bwa_H37Rv_gatk.vcf.gz'
+#query = read.vcfR(query_vcf)
+
+# Look at what's in the VCF
+vcf_field_names(query, tag = "FORMAT")
+
+# List of query VCFs
+query_files = dir_ls(path = '/labs/jandr/walter/tb/mtb/working/performance/',glob = '*.vcf.gz')
+length(query_files)
+
+# Function to read in VCF file and combine the fixed and GT fields
+get_vcf_tibble <- function(x) {tmp = vcfR2tidy(read.vcfR(x),format_fields = c("GT", "DP"))
+  output = tmp$fix %>%
+    left_join(tmp$gt, by = c('ChromKey'='ChromKey', 'POS'='POS'))
+  return(output)
+    }
+
+# Read in list of query VCFs
+q <- query_files %>%
+  map_dfr(get_vcf_tibble, .id = 'filename') %>%
+  mutate(replicate = str_remove(str_remove(basename(filename),'CDC1551_clean_'),'_variants.vcf.gz'))
+dim(q) #24720
+unique(q$replicate)
+
+# Apply filters
+q <- q %>% mutate(gt_GT = case_when(DP <= depth_filter ~ as.character(NA), 
+                           QUAL <= quality_filter ~ as.character(NA),
+                           TRUE ~ gt_GT),
+         FILTER = case_when(DP <= depth_filter ~ 'low_depth', 
+                           QUAL <= quality_filter ~ 'low_quality',
+                           TRUE ~ gt_GT))
+table(q$gt_GT, useNA = 'always')
+
+# Truth vcf
+truth_vcf = '/labs/jandr/walter/tb/data/refs/truth_vcf/CDC1551_clean_H37Rv_c1500_true.vcf.gz'
+
+truth = read.vcfR(truth_vcf)
+
+# Look at what's in the VCF
+vcf_field_names(truth, tag = "FORMAT")
+
+# Create tidy version, including both gt and format/info
+t <- as.data.frame(truth@fix) %>%
+  as_tibble() %>%
+  mutate(POS = as.numeric(POS), 
+         GT = 1)
+t
+q
+
+# Read ppe bed file
+ppe_bed_file = '/labs/jandr/walter/tb/data/refs/ppe_gagneux_0based_fmt.bed.gz'
+bed = read_tsv(ppe_bed_file,col_names = c('chrom','start','end','name','pair','strand'))
+bed <- bed %>%
+  unique()
+
+# Add PPE annotation to both the truth VCF
+library(fuzzyjoin)
+t_ann = fuzzy_left_join(t, bed, 
+             by = c("POS" = "start", "POS" = "end"), 
+             match_fun = list(`>`, `<=`)) %>%
+        # For POS with multiple annotations, select the first (otherwise the POS is duplicated)
+        group_by(POS) %>%
+  slice(1) %>% ungroup()
+
+table(is.na(t_ann$name))
+
+# Add PPE annotation to both the query VCF
+q_ann = fuzzy_left_join(q, bed, 
+             by = c("POS" = "start", "POS" = "end"), 
+             match_fun = list(`>`, `<=`)) %>%
+        # For POS with multiple annotations, select the first (otherwise the POS is duplicated)
+        group_by(POS,replicate) %>%
+  slice(1) %>% ungroup()
+table(is.na(q_ann$name))
+
+```
+
+```{r measure performance of variant calling}
+genome_length = 4411532
+  
+# Full join the query and truth VCFs. Need to full join buy group so that each replicate is also linked to FNs
+q_full <- q_ann %>% group_by(replicate) %>%
+  group_modify(~ full_join(., t_ann, by = c('CHROM','POS')))
+  
+dim(q_full)
+table(q_full$replicate, useNA = 'always')
+
+overall_performance = q_full %>%
+  ungroup() %>%
+  group_by(replicate) %>%
+  mutate(type = case_when(is.na(gt_GT) & GT == 1 ~ 'FN',
+                          !(is.na(gt_GT)) & is.na(GT) ~ 'FP',
+                          !(is.na(gt_GT)) & GT == 1 ~ 'TP',  
+                          is.na(gt_GT) & is.na(GT) ~ 'TN', 
+                          TRUE ~ as.character(NA))) %>%
+  summarize(pos_sites = length(t_ann$POS),
+            tp_calls = length(which(type == 'TP')),
+            sensitivity = tp_calls/pos_sites, 
+            fp_calls = length(which(type == 'FP')),
+            precision = tp_calls/(tp_calls + fp_calls),
+            # tn = genome_length - tp,
+            #neg_calls = genome_length - pos_calls,
+  ) 
+overall_performance
+
+# Summarize full statistics
+summary_full = overall_performance %>%
+  rename(`True variants`=pos_sites, TP=tp_calls,FP=fp_calls,Sensitivity = sensitivity, Precision = precision) %>%
+  st(summ=c('length(x)','mean(x)','median(x)','sd(x)'), 
+     summ.names=c('Replicates','Mean','Median','Std. Dev.'),title = '',out = 'csv')
+summary_full <- summary_full %>%
+  mutate(Region = 'Genome')
+
+# Exclude PPE
+noppe_performance = q_full %>%
+  ungroup() %>% group_by(replicate) %>%
+  filter(is.na(name.x) & is.na(name.y)) %>% 
+  mutate(type = case_when(is.na(gt_GT) & GT == 1 ~ 'FN',
+                          !(is.na(gt_GT)) & is.na(GT) ~ 'FP',
+                          !(is.na(gt_GT)) & GT == 1 ~ 'TP',  
+                          is.na(gt_GT) & is.na(GT) ~ 'TN', 
+                          TRUE ~ as.character(NA))) %>%
+  summarize(pos_sites = length(which(is.na(t_ann$name))),
+            tp_calls = length(which(type == 'TP')),
+            sensitivity = tp_calls/pos_sites, 
+            fp_calls = length(which(type == 'FP')),
+            precision = tp_calls/(tp_calls + fp_calls),
+            # tn = genome_length - tp,
+            #neg_calls = genome_length - pos_calls,
+  )
+
+# Summarize w/o ppe
+summary_noppe = noppe_performance %>%
+  rename(`True variants`=pos_sites, TP=tp_calls,FP=fp_calls,Sensitivity = sensitivity, Precision = precision) %>%
+  st(summ=c('length(x)','mean(x)','median(x)','sd(x)'), 
+     summ.names=c('Replicates','Mean','Median','Std. Dev.'),title = '',out = 'csv')
+summary_noppe <- summary_noppe %>%
+  mutate(Region = 'No PE/PPE')
+
+# Combine statistcs and save
+summary <- bind_rows(summary_noppe,summary_full)
+write_csv(summary, file = '/oak/stanford/scg/lab_jandr/walter/tb/mtb/working/performance/performance_summary.csv')
+```

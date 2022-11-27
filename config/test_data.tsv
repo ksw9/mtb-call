@@ -1,0 +1,2 @@
+sample,fastq_1,fastq_2,batch,run
+test,/labs/jandr/walter/tb/mtb/test_data/test_R1_001.fastq.gz,/labs/jandr/walter/tb/mtb/test_data/test_R2_001.fastq.gz,test_data,test_data

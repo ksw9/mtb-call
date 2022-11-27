@@ -1,0 +1,17 @@
+## Ignore results directory
+results/
+working/
+vcf/
+test/
+work/
+logs/
+runs/
+mykrobe/
+tbdb/
+
+# Ignore logs and tmp/test files
+.snakemake/
+.token
+slurm*
+.Rproj.user
+.RData

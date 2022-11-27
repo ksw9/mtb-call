@@ -1,0 +1,31 @@
+---
+title: "Paraguay convergence analysis"
+output: html_document
+date: '2022-10-25'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+install.packages("devtools")
+devtools::install_github("katiesaund/hogwash")
+library(hogwash)
+```
+
+```{r sample data}
+phenotype <- hogwash::antibiotic_resistance
+phenotype
+genotype <- hogwash::snp_genotype
+genotype
+tree <- hogwash::tree
+plot(tree)
+key <- hogwash::snp_gene_key
+key
+h = hogwash(pheno = phenotype, 
+        geno = genotype,  
+        tree = tree,      
+        group_genotype_key = key, 
+        test = "synchronous", 
+        grouping_method = "post-ar",
+        dir = '/oak/stanford/scg/lab_jandr/walter/tb/pgy/plots/')
+hogwash::report_phylogenetic_signal(phenotype, tree)
+```

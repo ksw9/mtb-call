@@ -1,0 +1,11 @@
+Feb-23 11:15:00.419 [main] DEBUG nextflow.cli.Launcher - $> nextflow run nf-core/viralrecon
+Feb-23 11:15:00.576 [main] INFO  nextflow.cli.CmdRun - N E X T F L O W  ~  version 21.10.6
+Feb-23 11:15:02.748 [main] DEBUG nextflow.scm.AssetManager - Git config: /home/kwalter/.nextflow/assets/nf-core/viralrecon/.git/config; branch: master; remote: origin; url: https://github.com/nf-core/viralrecon.git
+Feb-23 11:15:02.784 [main] DEBUG nextflow.scm.AssetManager - Git config: /home/kwalter/.nextflow/assets/nf-core/viralrecon/.git/config; branch: master; remote: origin; url: https://github.com/nf-core/viralrecon.git
+Feb-23 11:15:03.353 [main] DEBUG nextflow.cli.Launcher - Operation aborted
+nextflow.exception.AbortOperationException: Project `nf-core/viralrecon` currently is sticked on revision: dev -- you need to specify explicitly a revision with the option `-r` to use it
+	at nextflow.scm.AssetManager.checkout(AssetManager.groovy:914)
+	at nextflow.cli.CmdRun.getScriptFile(CmdRun.groovy:381)
+	at nextflow.cli.CmdRun.run(CmdRun.groovy:264)
+	at nextflow.cli.Launcher.run(Launcher.groovy:480)
+	at nextflow.cli.Launcher.main(Launcher.groovy:639)
