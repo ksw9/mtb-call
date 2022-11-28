@@ -35,3 +35,16 @@ fastq_dir:
    '/labs/jandr/walter/tb/data/'
 scripts_dir: 
    '/labs/jandr/walter/tb/mtb/workflow/scripts/'
+
+# Previously run file_list: 
+# samples_df = pd.read_table('config/Stanford_MT01-04.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+#samples_df = pd.read_table('config/MT06-2022-03-04_withEnvCult.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+#samples_df = pd.read_table('config/pgy.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+#samples_df = pd.read_table('config/SU022.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+# samples_df = pd.read_table('config/SU025.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+# samples_df = pd.read_table('config/SU027.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+# samples_df = pd.read_table('config/tgen_samples.tsv',sep = ',').set_index(["sample","batch"],drop=False) # done
+# samples_df = pd.read_table('config/tgen_samples2.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+# samples_df = pd.read_table('config/tgen_samples3_nodups.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+#samples_df = pd.read_table('config/perform.tsv',sep = ',').set_index(["sample","batch"],drop=False)
+#samples_df = pd.read_table('config/test_data.tsv',sep = ',').set_index(["sample","batch"],drop=False)

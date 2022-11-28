@@ -1,0 +1,25 @@
+name: bwa
+channels:
+  - bioconda
+  - r
+  - defaults
+  - conda-forge
+dependencies:
+  - _libgcc_mutex=0.1=main
+  - _openmp_mutex=5.1=1_gnu
+  - bwa=0.7.17=h5bf99c6_8
+  - bzip2=1.0.8=h7b6447c_0
+  - ldc=1.28.1=hcf88599_0
+  - libedit=3.1.20210910=h7f8727e_0
+  - libgcc-ng=11.2.0=h1234567_1
+  - libgomp=11.2.0=h1234567_1
+  - libllvm12=12.0.1=hf817b99_2
+  - libstdcxx-ng=11.2.0=h1234567_1
+  - libzlib=1.2.11=h166bdaf_1014
+  - lz4-c=1.9.3=h295c915_1
+  - ncurses=6.3=h5eee18b_3
+  - perl=5.26.2=h14c3975_0
+  - sambamba=0.8.2=h98b6b92_2
+  - xz=5.2.5=h7f8727e_1
+  - zlib=1.2.11=h166bdaf_1014
+prefix: /home/kwalter/.conda/envs/bwa

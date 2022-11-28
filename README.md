@@ -1,6 +1,6 @@
 # Mtb variant identification
 
-Snakemake pipeline for *M. tuberculosis* variant identification from short-read data, mapping with bwa, variant identification with snakemake. 
+Snakemake pipeline for *M. tuberculosis* variant identification from short-read data, mapping with bwa, variant identification with GATK. 
 
 ## Usage
 ```

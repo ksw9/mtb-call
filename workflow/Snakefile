@@ -9,7 +9,10 @@ import pandas as pd
 
 # Define config file. Stores sample names and other things.
 configfile: "config/config.yaml"
-  
+
+# List environments that need to be made (from .yml files in workflow/envs directory)
+ENVS, = glob_wildcards('workflow/envs/{env}.yml')
+
 # Set MultiIndex table using columns sample and batch to identify process uniquely. 
 samples_df = pd.read_table(config['file_list'],sep = ',').set_index(["sample","batch"],drop=False)
 
@@ -30,6 +33,7 @@ def fq2_from_sample(wildcards):
 # Define a rule for running the complete pipeline. 
 rule all:
   input:
+    env_creation = expand('workflow/envs/{env}_created.txt', zip, env=ENVS),
     #trim = expand(['results/{batch}/{samp}/trim/{samp}_trim_1.fq.gz'], zip, samp=sample_names,batch=batch_names),
     kraken=expand('results/{batch}/{samp}/kraken/{samp}_kr_1.fq.gz', zip, samp=sample_names,batch=batch_names),
     #bams=expand('results/{batch}/{samp}/bams/{samp}_{mapper}_{ref}_sorted.bam', zip, samp=sample_names,batch=batch_names, ref = config['ref']*len(sample_names), mapper = config['mapper']*len(sample_names)), # When using zip, need to use vectors of equal lengths for all wildcards.
@@ -42,7 +46,19 @@ rule all:
     fastas=expand('results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_{caller}.fa', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names), caller = config['caller']*len(sample_names), filter=config['filter']*len(sample_names)),
     profiles=expand('results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_lineageSpo.csv', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names)),
     quanttb=expand('results/{batch}/{samp}/stats/{samp}_quanttb.csv', zip, samp=sample_names,batch=batch_names)
+  output:
+    touch('environments_created.txt')
 
+# Create required snakemake environments. 
+rule create_env:
+   input: 'workflow/envs/{env}.yml'
+   output: 'workflow/envs/{env}_created.txt'
+   shell: 
+     '''
+     mamba create -f {input}
+     touch {output} 
+     '''
+     
 # Trim reads for quality. 
 rule trim_reads:  
   input: 
