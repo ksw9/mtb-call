@@ -64,12 +64,10 @@ If snakemake runs into an error or if a run is prematurely terminated, the direc
 snakmake --unlock
 ```
 
-```
-
 ## Directory structure
 Results will be organized in the results directory, in sub-directories organized by sequencing batch and then sample name.
 
-
+```
 ├── .gitignore
 ├── README.md
 ├── workflow
@@ -99,4 +97,4 @@ Results will be organized in the results directory, in sub-directories organized
 |   │   ├──vars
 |   │   ├──fasta
 |   │   ├──stats
-
+```
