@@ -16,3 +16,4 @@ slurm*
 .Rproj.user
 .RData
 config/{MT,SU,pgy,tgen,Stanford}*.tsv
+workflow/envs/*.txt

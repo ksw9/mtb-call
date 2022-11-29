@@ -13,6 +13,7 @@ Navigate to your project root directory.
 
 Create a conda environment with snakemake. Installation instructions [here](https://snakemake.readthedocs.io/en/stable/getting_started/installation.html).
 ```
+module add anaconda/3_2022.05 # On Stanford's SCG.
 conda activate base
 mamba create -c conda-forge -c bioconda -n snakemake snakemake
 ```
