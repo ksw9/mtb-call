@@ -8,7 +8,7 @@ import pandas as pd
 #from snakemake.io import * # For testing interactively in python
 
 # Define config file. Stores sample names and other things.
-configfile: "config/config.yaml"
+configfile: "config/config.yml"
 
 # List environments that need to be made (from .yml files in workflow/envs directory)
 ENVS, = glob_wildcards('workflow/envs/{env}.yml')

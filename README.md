@@ -39,7 +39,7 @@ This will stop at the Kraken taxonomic filtering step because the step for loadi
 
 Submit snakemake to the cluster.
 ```
-nohup snakemake -j 5 -k --cluster-config config/cluster_config.yaml --use-conda --rerun-triggers mtime --rerun-incomplete --cluster \
+nohup snakemake -j 5 -k --cluster-config config/cluster_config.yml --use-conda --rerun-triggers mtime --rerun-incomplete --cluster \
 "sbatch -A {cluster.account} --mem={cluster.memory} -t {cluster.time} --cpus-per-task {threads} --error {cluster.error} --output {cluster.output} " \
 > runs/snakemake_test_data.out & 
 ```
@@ -78,7 +78,14 @@ Results will be organized in the results directory, in sub-directories organized
 ├── workflow
 │   ├── rules
 │   ├── envs
-|   │   ├── mtb.yaml
+|   │   ├── bwa.yml
+|   │   ├── gatk.yml
+|   │   ├── kraken2.yml
+|   │   ├── picard.yml
+|   │   ├── quanttb.yml
+|   │   ├── samtools.yml
+|   │   ├── TBprofilerv4.3.0.yml
+|   │   ├── trim-galore.yml
 |   │   ├── conda-meta
 │   ├── scripts
 |   │   ├──process_stanford_tb.sh
@@ -92,8 +99,8 @@ Results will be organized in the results directory, in sub-directories organized
 |   │   ├──vcf2fasta.sh
 |   └── Snakefile
 ├── config
-│   ├── config.yml
-│   ├── cluster_config.yml
+│   ├── config.yml (run/user specific parameters)
+│   ├── cluster_config.yml (cluster specific parameters)
 ├── results
 │   ├── test_data/test (example organized by sequencing batch, then sample) 
 |   │   ├──trim
