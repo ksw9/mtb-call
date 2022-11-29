@@ -6,7 +6,8 @@ Snakemake pipeline for *M. tuberculosis* variant identification from short-read 
 
 Clone repository from GitHub.
 ```
-git clone https://github.com/ksw9/mtb-call.git```
+git clone https://github.com/ksw9/mtb-call.git
+```
 
 Navigate to your project root directory. 
 
@@ -18,34 +19,49 @@ mamba create -c conda-forge -c bioconda -n snakemake snakemake```
 Activate snakemake environment
 ```
 source activate snakemake 
-snakemake --help```
+snakemake --help
+```
 
  Update the config file so that Snakemake uses the correct sample list as input. The test sample list is config/test_data.tsv.	
 
  List snakemake jobs that have not yet completed, but don't run.
-```snakemake -np```
+```
+snakemake -np
+```
 
  Run snakemake, specifying cores to use and use conda. 
-```snakemake --cores all --use-conda```
+```
+snakemake --cores all --use-conda
+```
 
- This will stop at the Kraken taxonomic filtering step because the step for loading the Kraken database into memory doesn't work. Instead submit to the cluster. 
+This will stop at the Kraken taxonomic filtering step because the step for loading the Kraken database into memory doesn't work. Instead submit to the cluster. 
 
- Submit snakemake to the cluster.
-```nohup snakemake -j 5 -k --cluster-config config/cluster_config.yaml --use-conda --rerun-triggers mtime --rerun-incomplete --cluster \
+Submit snakemake to the cluster.
+```
+nohup snakemake -j 5 -k --cluster-config config/cluster_config.yaml --use-conda --rerun-triggers mtime --rerun-incomplete --cluster \
 "sbatch -A {cluster.account} --mem={cluster.memory} -t {cluster.time} --cpus-per-task {threads} --error {cluster.error} --output {cluster.output} " \
-> runs/snakemake_test_data.out & ```
+> runs/snakemake_test_data.out & 
+```
 
- Monitor jobs running on the cluster.
-```sq```
+Monitor jobs running on the cluster.
+```
+sq
+```
 
- Look at entire output once jobs are completed.
-```cat runs/snakemake_test_data.out```
+Look at entire output once jobs are completed.
+```
+cat runs/snakemake_test_data.out
+```
 
- Each step also produces a log, for troubleshooting a specific step. 
-```cat results/test_data/test/bams/test_bwa_H37Rv_map.log```
+Each step also produces a log, for troubleshooting a specific step. 
+```
+cat results/test_data/test/bams/test_bwa_H37Rv_map.log
+```
  
- If snakemake runs into an error or if a run is prematurely terminated, the directory will be locked.
-```snakmake --unlock```
+If snakemake runs into an error or if a run is prematurely terminated, the directory will be locked.
+```
+snakmake --unlock
+```
 
 ```
 
