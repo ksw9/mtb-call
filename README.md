@@ -23,9 +23,9 @@ source activate snakemake
 snakemake --help
 ```
 
- Update the config file so that Snakemake uses the correct sample list as input. The test sample list is config/test_data.tsv.	
+Update the config file (config/config.yml) so that Snakemake uses the correct sample list as input. The test sample list is config/test_data.tsv.	
 
- List snakemake jobs that have not yet completed, but don't run.
+List snakemake jobs that have not yet completed, but don't run.
 ```
 snakemake -np
 ```
@@ -64,6 +64,11 @@ If snakemake runs into an error or if a run is prematurely terminated, the direc
 snakmake --unlock
 ```
 
+## Example data
+
+Sampled paired-end fastq files are in the test_data directory.
+An input sample .tsv file list is located at config/test_data.tsv.
+
 ## Directory structure
 Results will be organized in the results directory, in sub-directories organized by sequencing batch and then sample name.
 
@@ -87,8 +92,8 @@ Results will be organized in the results directory, in sub-directories organized
 |   │   ├──vcf2fasta.sh
 |   └── Snakefile
 ├── config
-│   ├── config.yaml
-│   ├── cluster_config.yaml
+│   ├── config.yml
+│   ├── cluster_config.yml
 ├── results
 │   ├── test_data/test (example organized by sequencing batch, then sample) 
 |   │   ├──trim
