@@ -1,4 +1,4 @@
-# Mtb variant identification
+# *M. tuberculosis*  variant identification
 
 Snakemake pipeline for *M. tuberculosis* variant identification from short-read data, mapping with bwa, variant identification with GATK. 
 
@@ -69,7 +69,7 @@ snakmake --unlock
 ## Directory structure
 Results will be organized in the results directory, in sub-directories organized by sequencing batch and then sample name.
 
-```
+
 ├── .gitignore
 ├── README.md
 ├── workflow
@@ -99,4 +99,4 @@ Results will be organized in the results directory, in sub-directories organized
 |   │   ├──vars
 |   │   ├──fasta
 |   │   ├──stats
-```
+
