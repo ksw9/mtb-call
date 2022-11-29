@@ -5,16 +5,19 @@ Snakemake pipeline for *M. tuberculosis* variant identification from short-read 
 ## Usage
 
 Clone repository from GitHub.
-```git clone https://github.com/ksw9/mtb-call.git```
+```
+git clone https://github.com/ksw9/mtb-call.git```
 
 Navigate to your project root directory. 
 
-Create a conda environment with snakemake. Installation instructions [here].(https://snakemake.readthedocs.io/en/stable/getting_started/installation.html)
-```conda activate base
+Create a conda environment with snakemake. Installation instructions [here](https://snakemake.readthedocs.io/en/stable/getting_started/installation.html).
+```
+conda activate base
 mamba create -c conda-forge -c bioconda -n snakemake snakemake```
 
- Activate snakemake environment
-```source activate snakemake 
+Activate snakemake environment
+```
+source activate snakemake 
 snakemake --help```
 
  Update the config file so that Snakemake uses the correct sample list as input. The test sample list is config/test_data.tsv.	
