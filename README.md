@@ -23,7 +23,20 @@ Activate snakemake environment
 source activate snakemake 
 snakemake --help
 ```
+Download SnpEff for gene annotation. 
+```
+# Download latest [version] (https://pcingola.github.io/SnpEff/download/)
+wget https://snpeff.blob.core.windows.net/versions/snpEff_latest_core.zip
 
+# Unzip file
+unzip snpEff_latest_core.zip
+```
+
+Download the updated M. tuberculosis annotations. 
+```
+ java -jar snpEff.jar download Mycobacterium_tuberculosis_h37rv
+```
+ 
 Update the config file (config/config.yml) so that Snakemake uses the correct sample list as input. The test sample list is config/test_data.tsv.	
 
 List snakemake jobs that have not yet completed, but don't run.
