@@ -20,7 +20,7 @@ fastq2_suffix:
 file_list:
     'config/test_data.tsv'
 ref_dir:
-    '/labs/jandr/walter/tb/data/refs/'
+    'workflow/refs/'
 snpeff:
     '/scg/apps/software/snpeff/4.3t/snpEff/snpEff.jar'
 snpeff_db:
@@ -28,11 +28,9 @@ snpeff_db:
 snpeff_datapath:
     '/labs/jandr/walter/tb/data/refs/snpEff/'
 bed_path:
-    '/labs/jandr/walter/tb/data/refs/ppe_gagneux_0based_fmt.bed.gz'
+    'workflow/refs/H37Rv_ppe.bed.gz'
 vcf_header:
-    '/labs/jandr/walter/tb/data/refs/ppe_hdr.txt'
-#fastq_dir: 
-#   '/labs/jandr/walter/tb/data/'
+    'workflow/refs/ppe_hdr.txt'
 scripts_dir: 
    'workflow/scripts/'
 
