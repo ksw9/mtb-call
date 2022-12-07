@@ -23,9 +23,10 @@ Activate snakemake environment
 source activate snakemake 
 snakemake --help
 ```
-Download SnpEff for gene annotation. 
+
+Download SnpEff for [gene annotation](https://pcingola.github.io/SnpEff/download/)
+Update the config file (config/config.yml) with the correct SnpEff path.
 ```
-# Download latest [version] (https://pcingola.github.io/SnpEff/download/)
 wget https://snpeff.blob.core.windows.net/versions/snpEff_latest_core.zip
 
 # Unzip file
