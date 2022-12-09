@@ -24,7 +24,8 @@ source activate snakemake
 snakemake --help
 ```
 
-Download SnpEff for [gene annotation](https://pcingola.github.io/SnpEff/download/)
+Download SnpEff for [gene annotation](https://pcingola.github.io/SnpEff/download/).
+
 Update the config file (config/config.yml) with the correct SnpEff path.
 ```
 wget https://snpeff.blob.core.windows.net/versions/snpEff_latest_core.zip
@@ -112,6 +113,11 @@ Results will be organized in the results directory, in sub-directories organized
 |   │   ├──mykrobe_predict.sh
 |   │   ├──call_varsgatk.sh
 |   │   ├──vcf2fasta.sh
+│   ├── refs
+|   │   ├──H37Rv.fa
+|   │   ├──H37Rv_ppe.bed.gz
+|   │   ├──ppe_hdr.txt
+|   │   ├──snpEff
 |   └── Snakefile
 ├── config
 │   ├── config.yml (run/user specific parameters)

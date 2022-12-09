@@ -12,12 +12,15 @@ configfile: "config/config.yml"
 
 # List environments that need to be made (from .yml files in workflow/envs directory)
 ENVS, = glob_wildcards('workflow/envs/{env}.yml')
+print(ENVS)
 
 # Set MultiIndex table using columns sample and batch to identify process uniquely. 
 samples_df = pd.read_table(config['file_list'],sep = ',').set_index(["sample","batch"],drop=False)
 
 sample_names = list(samples_df['sample'])
 batch_names = list(samples_df['batch'])
+print(sample_names)
+print(batch_names)
 
 # fastq1 input function definition. Print only first if there are two matches.
 def fq1_from_sample(wildcards):
