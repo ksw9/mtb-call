@@ -1,2 +1,2 @@
 sample,fastq_1,fastq_2,batch,run
-test,test_R1_001.fastq.gz,test_R2_001.fastq.gz,test_data,test_data
+test,test_data/test_R1_001.fastq.gz,test_data/test_R2_001.fastq.gz,test_data,test_data
