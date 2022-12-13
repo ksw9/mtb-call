@@ -49,8 +49,6 @@ rule all:
     fastas=expand('results/{batch}/{samp}/fasta/{samp}_{mapper}_{ref}_{caller}.fa', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names), caller = config['caller']*len(sample_names), filter=config['filter']*len(sample_names)),
     profiles=expand('results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_lineageSpo.csv', zip, samp=sample_names,batch=batch_names, ref=config['ref']*len(sample_names), mapper=config['mapper']*len(sample_names)),
     quanttb=expand('results/{batch}/{samp}/stats/{samp}_quanttb.csv', zip, samp=sample_names,batch=batch_names)
-  output:
-    touch('environments_created.txt')
 
 # Create required snakemake environments. 
 rule create_env:
