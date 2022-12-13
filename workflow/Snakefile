@@ -56,8 +56,8 @@ rule create_env:
    output: 'workflow/envs/{env}_created.txt'
    shell: 
      '''
-     mamba create -f {input}
-     touch {output} 
+     #mamba create -f {input}
+     echo {env} > {output} 
      '''
      
 # Trim reads for quality. 
