@@ -54,10 +54,12 @@ rule all:
 rule create_env:
    input: 'workflow/envs/{env}.yml'
    output: 'workflow/envs/{env}_created.txt'
+   params: 
+     enviro='{env}'
    shell: 
      '''
      #mamba create -f {input}
-     echo {env} > {output} 
+     echo {params.enviro} > {output} 
      '''
      
 # Trim reads for quality. 
