@@ -59,7 +59,7 @@ rule create_env:
    shell: 
      '''
      # Add test if environment exists already, create if not. 
-     existing_env=$(conda env list | awk '{print $1}' | {params.enviro})
+     existing_env=$(conda env list | awk '{{print $1}}' | {params.enviro})
      [ -z "$test" ] && mamba create -f {input}
      echo {params.enviro} > {output} 
      '''
