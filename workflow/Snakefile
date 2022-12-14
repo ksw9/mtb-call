@@ -12,7 +12,7 @@ configfile: "config/config.yml"
 
 # List environments that need to be made (from .yml files in workflow/envs directory)
 ENVS, = glob_wildcards('workflow/envs/{env}.yml')
-print(ENVS)
+#print(ENVS)
 
 # Set MultiIndex table using columns sample and batch to identify process uniquely. 
 samples_df = pd.read_table(config['file_list'],sep = ',').set_index(["sample","batch"],drop=False)
@@ -20,7 +20,7 @@ samples_df = pd.read_table(config['file_list'],sep = ',').set_index(["sample","b
 sample_names = list(samples_df['sample'])
 batch_names = list(samples_df['batch'])
 print(sample_names)
-print(batch_names)
+#print(batch_names)
 
 # fastq1 input function definition. Print only first if there are two matches.
 def fq1_from_sample(wildcards):
@@ -60,7 +60,7 @@ rule create_env:
      '''
      # Add test if environment exists already, create if not. 
      existing_env=$(conda env list | awk '{{print $1}}' | {params.enviro})
-     [ -z "$test" ] && mamba create -f {input}
+     [ -z "$existing_env" ] && mamba create -f {input}
      echo {params.enviro} > {output} 
      '''
      
