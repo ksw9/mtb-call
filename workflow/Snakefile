@@ -36,7 +36,7 @@ def fq2_from_sample(wildcards):
 # Define a rule for running the complete pipeline. 
 rule all:
   input:
-    env_creation = expand('workflow/envs/{env}_created.txt', zip, env=ENVS),
+    #env_creation = expand('workflow/envs/{env}_created.txt', zip, env=ENVS),
     #trim = expand(['results/{batch}/{samp}/trim/{samp}_trim_1.fq.gz'], zip, samp=sample_names,batch=batch_names),
     kraken=expand('results/{batch}/{samp}/kraken/{samp}_kr_1.fq.gz', zip, samp=sample_names,batch=batch_names),
     #bams=expand('results/{batch}/{samp}/bams/{samp}_{mapper}_{ref}_sorted.bam', zip, samp=sample_names,batch=batch_names, ref = config['ref']*len(sample_names), mapper = config['mapper']*len(sample_names)), # When using zip, need to use vectors of equal lengths for all wildcards.
@@ -59,7 +59,7 @@ rule create_env:
    shell: 
      '''
      # Add test if environment exists already, create if not. 
-     existing_env=$(conda env list | awk '{{print $1}}' | {params.enviro})
+     existing_env=$(conda env list | awk '{{print $1}}' | grep {params.enviro})
      [ -z "$existing_env" ] && mamba create -f {input}
      echo {params.enviro} > {output} 
      '''
