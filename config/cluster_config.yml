@@ -16,8 +16,8 @@
     },
         "taxonomic_filter" :
     {
-        "time" : "15:00:00",
-        "memory": 500G
+        "time" : "5:00:00",
+        "memory": 200G
     },
             "gatk_call" :
     {

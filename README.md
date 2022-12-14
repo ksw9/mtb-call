@@ -41,23 +41,23 @@ Download the updated M. tuberculosis annotations.
  
 Update the config file (config/config.yml) so that Snakemake uses the correct sample list as input. The test sample list is config/test_data.tsv.	
 
+Create a directory to store cluster run outputs for troubleshooting.
+```
+mkdir logs
+```
+
 List snakemake jobs that have not yet completed, but don't run.
 ```
 snakemake -np
 ```
 
- Run snakemake, specifying cores to use and use conda. 
-```
-snakemake --cores all --use-conda
-```
+Running snakemake locally will stop at Kraken step, due to memory requirements. 
+Instead, submit to the cluster. ```--use-conda``` indicates using conda libraries specified at each step. 
 
-This will stop at the Kraken taxonomic filtering step because the step for loading the Kraken database into memory doesn't work. Instead submit to the cluster. 
-
-Submit snakemake to the cluster.
 ```
 nohup snakemake -j 5 -k --cluster-config config/cluster_config.yml --use-conda --rerun-triggers mtime --rerun-incomplete --cluster \
 "sbatch -A {cluster.account} --mem={cluster.memory} -t {cluster.time} --cpus-per-task {threads} --error {cluster.error} --output {cluster.output} " \
-> runs/snakemake_test_data.out & 
+> logs/snakemake_test_data.out & 
 ```
 
 Monitor jobs running on the cluster.
@@ -67,7 +67,7 @@ sq
 
 Look at entire output once jobs are completed.
 ```
-cat runs/snakemake_test_data.out
+cat run_logs/snakemake_test_data.out
 ```
 
 Each step also produces a log, for troubleshooting a specific step. 
