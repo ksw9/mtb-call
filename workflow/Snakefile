@@ -200,7 +200,8 @@ rule tb_profiler:
   params: 
     tmp_file='results/{batch}/{samp}/stats/results/{samp}.results.csv',
     outdir='results/{batch}/{samp}/stats/', 
-    samp='{samp}'
+    samp='{samp}',
+    ref_path='/labs/jandr/walter/tb/data/refs/{ref}.fa'
   output:
     profile='results/{batch}/{samp}/stats/{samp}_{mapper}_{ref}_lineageSpo.csv'   
   log:
@@ -208,6 +209,9 @@ rule tb_profiler:
   conda: 'TBprofiler2'
   shell: 
     """
+    # Make sure tb-profiler reference chromosome names match the name used in your reference FASTA.
+    tb-profiler update_tbdb --match_ref {params.ref_path}
+
     tb-profiler profile --bam {input.combined_bam} --prefix {params.samp} --dir {params.outdir} --csv --spoligotype &>> {log}
     mv {params.tmp_file} {output.profile}    
     
