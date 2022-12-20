@@ -27,6 +27,8 @@ snpeff_db:
     'Mycobacterium_tuberculosis_h37rv'
 snpeff_datapath:
     'workflow/refs/snpEff/'
+snpeff_configpath:
+    'config/snpEff.config'
 bed_path:
     'workflow/refs/H37Rv_ppe.bed.gz'
 vcf_header:

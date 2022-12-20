@@ -19,7 +19,7 @@ samples_df = pd.read_table(config['file_list'],sep = ',').set_index(["sample","b
 
 sample_names = list(samples_df['sample'])
 batch_names = list(samples_df['batch'])
-print(sample_names)
+#print(sample_names)
 #print(batch_names)
 
 # fastq1 input function definition. Print only first if there are two matches.
@@ -281,7 +281,7 @@ rule annotate_snps:
     tabix {output.rename_vcf}
 
     # Run snpEff and then rename Chromosome.
-    java -jar -Xmx8g {config[snpeff]} eff {config[snpeff_db]} {output.rename_vcf} -dataDir {config[snpeff_datapath]} -noStats -no-downstream -no-upstream -canon | sed 's/Chromosome/NC_000962.3/g' > {output.tmp_vcf}
+    java -jar -Xmx8g {config[snpeff]} eff {config[snpeff_db]} {output.rename_vcf} -config {config[snpeff_configpath]} -dataDir {config[snpeff_datapath]} -noStats -no-downstream -no-upstream -canon | sed 's/Chromosome/NC_000962.3/g' > {output.tmp_vcf}
 
     # Also use bed file to annotate vcf, zip.
     bcftools annotate -a {params.bed} -h {params.vcf_header} -c CHROM,FROM,TO,FORMAT/PPE {output.tmp_vcf} | bgzip  > {output.ann_vcf}
