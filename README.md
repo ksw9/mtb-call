@@ -1,4 +1,5 @@
-# *M. tuberculosis*  variant identification--Deprecated 2023. Use: https://github.com/ksw9/mtb-vars
+# *M. tuberculosis*  variant identification
+# Deprecated 2023. Please use: https://github.com/ksw9/mtb-vars
 
 Snakemake pipeline for *M. tuberculosis* variant identification from short-read data, mapping with bwa, variant identification with GATK. 
 
